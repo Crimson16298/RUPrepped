@@ -1,7 +1,8 @@
 # RUPrepped backend handoff — Milestone 1B
 
-**Scope:** deterministic local mock backend. It does not call Gemini,
-ElevenLabs, Presage, Tiger Data, or a database.
+**Scope:** local mock backend by default, with an optional server-configured
+Gemini provider. It does not connect ElevenLabs, Presage, Tiger Data, or a
+database.
 
 ## Run locally
 
@@ -13,6 +14,14 @@ python3 -m venv .venv
 ```
 
 OpenAPI: `http://127.0.0.1:8000/docs`.
+
+Set `INTERVIEW_PROVIDER=gemini` and a server-side `GEMINI_API_KEY` to enable
+Gemini. Do not put this key in frontend code, requests, or source control.
+The default model is `gemini-3.5-flash-lite`, which was live-verified for this
+project; override it server-side with `GEMINI_MODEL` only when needed.
+Gemini requests use `GEMINI_TIMEOUT_MS` (default 10 seconds) with one SDK
+attempt. Provider errors include only safe operation/status/timing diagnostics;
+the UI should show the stable `error.code` and must not expect provider bodies.
 
 ## Available endpoints
 
@@ -65,6 +74,7 @@ Example response:
     "improvements": ["Add more context, actions, and an outcome to strengthen the answer."],
     "feedback": "Mock evaluation: expand the example into a complete explanation."
   },
+  "difficulty_adjustment": { "previous_difficulty": 3, "next_difficulty": 3, "decision": "maintain", "source": "evaluation" },
   "next_question": { "question_id": "q_technical-debugging_3" }
 }
 ```
@@ -84,6 +94,28 @@ ElevenLabs integration should pass recognized text as `transcript`. It may pass
 an opaque recording or turn identifier through `audio_reference`; this API does
 not accept audio uploads.
 
+### Current frontend compatibility
+
+The published frontend currently uses a provisional `mockInterviewAdapter`; its
+TypeScript types are not yet the HTTP API contract. Person 4 should introduce a
+backend adapter rather than rename the existing UI model in place:
+
+| Frontend concept | Backend field / action |
+| --- | --- |
+| `SessionSetup.objective` | `target_role_or_subject` |
+| `SessionSetup.jobDescription` | `job_description` |
+| `SessionSetup.difficulty` | `difficulty` (`1..5`) |
+| chosen interview mode | `interview_type` (`behavioral`, `technical`, `mixed`) |
+| current `Question.id` / `prompt` | `question_id` / `question_text` |
+| submitted answer text | `transcript` in `/answers` |
+| `CalibrationEvent` | `difficulty_adjustment`, with `source: "evaluation"` |
+
+`question_count` needs an explicit frontend product decision; it is not derived
+from the current `lengthMinutes` field. Additive backend response fields are
+`provider_mode`, `evaluation.rubric`, and `difficulty_adjustment`. Mock returns
+`evaluation_source: "mock_deterministic"`/`is_mock: true`; Gemini returns
+`evaluation_source: "gemini"`/`is_mock: false`.
+
 ## Presage and calibration integration
 
 Use the backend-created `session_id` and the returned `question_id` to associate
@@ -93,10 +125,12 @@ Challenge calibration must remain an external decision until the planned
 
 ## Mock versus live behavior
 
-Questions and evaluations are deterministic test fixtures. The response labels
-`evaluation_source: "mock_deterministic"` and `is_mock: true` are intentional.
-Gemini question generation/evaluation, database persistence, measurement
-ingestion, authentication, and reports are not implemented.
+Mock mode returns deterministic test fixtures labelled
+`evaluation_source: "mock_deterministic"` and `is_mock: true`. Gemini mode
+uses the same response format with `evaluation_source: "gemini"` and
+`is_mock: false`; it performs structured text-only question generation and
+evaluation. Database persistence, measurement ingestion, authentication, and
+reports are not implemented.
 
 ## Decisions awaiting team approval
 

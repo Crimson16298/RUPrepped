@@ -24,14 +24,17 @@ const rubricLabels: Array<[keyof RubricScores, string]> = [
 
 function RubricGrid({ rubric }: { rubric: RubricScores }) {
   return (
-    <dl className="rubric-grid">
-      {rubricLabels.map(([key, label]) => (
-        <div key={key}>
-          <dt>{label}</dt>
-          <dd>{rubric[key] ?? "N/A"}</dd>
-        </div>
-      ))}
-    </dl>
+    <section className="rubric-panel" aria-label="Provider content rubric">
+      <small>CONTENT RUBRIC</small>
+      <dl className="rubric-grid">
+        {rubricLabels.map(([key, label]) => (
+          <div key={key}>
+            <dt>{label}</dt>
+            <dd>{rubric[key] ?? "N/A"}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 

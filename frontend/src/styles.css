@@ -1124,6 +1124,28 @@ textarea {
   background: linear-gradient(90deg, #4f96ff, #9d72fd);
   border-radius: 3px;
 }
+.rubric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 11px 0 0;
+}
+.rubric-grid div {
+  border: 1px solid #283c5a;
+  border-radius: 7px;
+  background: #101d30;
+  padding: 7px;
+}
+.rubric-grid dt {
+  color: #8196b9;
+  font: 700 8px "DM Mono";
+  line-height: 1.35;
+}
+.rubric-grid dd {
+  color: #dbeaff;
+  font: 700 12px "DM Mono";
+  margin: 4px 0 0;
+}
 .results-grid aside {
   display: grid;
   gap: 14px;
@@ -1321,6 +1343,9 @@ textarea {
   }
   .timeline article {
     align-items: start;
+  }
+  .rubric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .timeline .badge {
     display: none;

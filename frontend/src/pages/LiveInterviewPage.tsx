@@ -54,6 +54,10 @@ export function LiveInterviewPage() {
   const latestCalibration = session.calibration.at(-1);
   const progress = Math.round((index / session.questionCount) * 100);
   const isBackend = session?.mode === "backend";
+  const displayedDifficulty = current?.difficulty ?? session.setup.difficulty;
+  const hasBackendQuestionDifficulty = isBackend && current?.difficulty !== undefined;
+  const providerLabel = session.providerMode === "gemini" ? "Gemini-backed session" : isBackend ? "Mock-provider backend session" : "Mock interview in progress";
+  const adjustmentTitle = latestCalibration?.decision === "increase" ? "Next question is more challenging" : latestCalibration?.decision === "decrease" ? "Next question eases slightly" : "Challenge level maintained";
   async function submit() {
     if (!text.trim() || done) return;
     const accepted = await answer(text);
@@ -69,7 +73,7 @@ export function LiveInterviewPage() {
         <Stepper current={2} />
         <div className="interview-meta">
           <div>
-              <Badge>{isBackend ? "Backend interview in progress" : "Mock interview in progress"}</Badge>
+              <Badge>{providerLabel}</Badge>
             <span>{session.setup.objective}</span>
           </div>
           <div>
@@ -101,7 +105,7 @@ export function LiveInterviewPage() {
                 <div className="completion-message">
                   <CheckCircle2 />
                   <h2>Practice sequence complete.</h2>
-                  <p>Review your simulated feedback when you’re ready.</p>
+                  <p>Review your available session feedback when you’re ready.</p>
                 </div>
               ) : (
                 <>
@@ -166,7 +170,7 @@ export function LiveInterviewPage() {
                 <div>
                   <small>CHALLENGE CALIBRATION</small>
                   <h2>
-                    Level {session.setup.difficulty}
+                    Level {displayedDifficulty}
                     <span> / 5</span>
                   </h2>
                 </div>
@@ -175,21 +179,33 @@ export function LiveInterviewPage() {
               <div className="level-bars">
                 {[1, 2, 3, 4, 5].map((bar) => (
                   <i
-                    className={bar <= session.setup.difficulty ? "active" : ""}
+                    className={bar <= displayedDifficulty ? "active" : ""}
                     key={bar}
                   />
                 ))}
               </div>
               <p>
                 <strong>
-                  {latestCalibration
+                  {isBackend && latestCalibration
+                    ? adjustmentTitle
+                    : isBackend
+                    ? hasBackendQuestionDifficulty
+                      ? "Starting backend question level"
+                      : "Difficulty level unavailable"
+                    : latestCalibration
                     ? latestCalibration.decision === "increase"
                       ? "Slightly harder next"
                       : "Holding steady"
                     : "Starting point set"}
                 </strong>
-                {latestCalibration?.rationale ??
-                  "This level came from the session setting you selected."}
+                {isBackend
+                  ? latestCalibration
+                    ? latestCalibration.rationale
+                    : hasBackendQuestionDifficulty
+                    ? "This value came from the current backend question. An adjustment rationale will appear after an evaluated answer."
+                    : "The backend did not provide difficulty for this question, so no calibration event is inferred."
+                  : latestCalibration?.rationale ??
+                    "This level came from the session setting you selected."}
               </p>
               <div className="signal-status">
                 <Coffee size={16} />
@@ -220,7 +236,7 @@ export function LiveInterviewPage() {
                 ))}
               </div>
             </Card>
-            {session.answers.at(-1)?.evaluation && <Card className="transcript-card"><div className="side-title"><div><small>LATEST BACKEND EVALUATION</small><h2>{session.answers.at(-1)?.evaluation?.score}/100</h2></div><Badge tone="muted">{session.answers.at(-1)?.evaluation?.evaluationSource}</Badge></div><p className="evaluation-copy">{session.answers.at(-1)?.evaluation?.feedback}</p></Card>}
+            {session.answers.at(-1)?.evaluation && <Card className="transcript-card"><div className="side-title"><div><small>LATEST {session.answers.at(-1)?.evaluation?.evaluationSource.toUpperCase()} EVALUATION</small><h2>{session.answers.at(-1)?.evaluation?.score}/100</h2></div><Badge tone="muted">{session.answers.at(-1)?.evaluation?.evaluationSource}</Badge></div><p className="evaluation-copy">{session.answers.at(-1)?.evaluation?.feedback}</p></Card>}
           </aside>
         </div>
         <div className="progress-footer">

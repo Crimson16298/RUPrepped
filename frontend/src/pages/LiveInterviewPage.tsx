@@ -52,12 +52,13 @@ export function LiveInterviewPage() {
   const current = session.questions[index];
   const done = !current;
   const latestCalibration = session.calibration.at(-1);
-  const progress = Math.round((index / session.questionCount) * 100);
+  const progress = done ? 100 : Math.round((index / session.questionCount) * 100);
   const isBackend = session?.mode === "backend";
   const displayedDifficulty = current?.difficulty ?? session.setup.difficulty;
   const hasBackendQuestionDifficulty = isBackend && current?.difficulty !== undefined;
   const providerLabel = session.providerMode === "gemini" ? "Gemini-backed session" : isBackend ? "Mock-provider backend session" : "Mock interview in progress";
   const adjustmentTitle = latestCalibration?.decision === "increase" ? "Next question is more challenging" : latestCalibration?.decision === "decrease" ? "Next question eases slightly" : "Challenge level maintained";
+  const sessionState = busy ? "Evaluating your response…" : paused ? "Session paused" : done ? "All questions answered" : `Question ${index + 1} is ready`;
   async function submit() {
     if (!text.trim() || done) return;
     const accepted = await answer(text);
@@ -81,6 +82,7 @@ export function LiveInterviewPage() {
             <strong>{time}</strong>
             <span>Simulated timer</span>
           </div>
+          <span className="session-state" aria-live="polite">{sessionState}</span>
         </div>
         <div className="interview-grid">
           <section className="interview-main">
@@ -122,15 +124,18 @@ export function LiveInterviewPage() {
                       placeholder="Type your answer here. This interface does not record audio or analyze your camera."
                       rows={6}
                       disabled={paused || busy}
+                      aria-describedby="answer-help"
                     />
                     <div>
-                      <small>
+                      <small id="answer-help">
                         {text.trim().split(/\s+/).filter(Boolean).length} words
+                        {busy && " · Your answer is being evaluated"}
                       </small>
                       <Button
                         type="button"
                         onClick={submit}
                         disabled={!text.trim() || paused || busy}
+                        aria-busy={busy}
                       >
                         {busy ? (
                           "Sending…"
@@ -146,7 +151,7 @@ export function LiveInterviewPage() {
               )}
             </Card>
             <Card className="controls-card">
-              <button type="button" onClick={() => setPaused(!paused)}>
+              <button type="button" onClick={() => setPaused(!paused)} disabled={busy}>
                 <Pause size={17} />{" "}
                 {paused ? "Resume simulation" : "Pause simulation"}
               </button>
@@ -162,7 +167,7 @@ export function LiveInterviewPage() {
                 <FastForward size={17} /> Finish Interview
               </button>
             </Card>
-            {error && <p className="error-message" role="alert">{error} {!busy && text.trim() && "Your answer is still here—correct the issue and retry."}</p>}
+            {error && <div className="request-notice" role="alert"><strong>Request needs your attention.</strong><p>{error}</p>{!busy && text.trim() && <small>Your draft is still in the answer box. Review the message, then retry submission.</small>}</div>}
           </section>
           <aside className="interview-side">
             <Card className="calibration-card">
@@ -184,7 +189,7 @@ export function LiveInterviewPage() {
                   />
                 ))}
               </div>
-              <p>
+              <p aria-live="polite">
                 <strong>
                   {isBackend && latestCalibration
                     ? adjustmentTitle
@@ -241,7 +246,7 @@ export function LiveInterviewPage() {
         </div>
         <div className="progress-footer">
           <span>Interview progress</span>
-          <div>
+          <div role="progressbar" aria-label="Interview completion" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
             <i style={{ width: `${progress}%` }} />
           </div>
           <strong>

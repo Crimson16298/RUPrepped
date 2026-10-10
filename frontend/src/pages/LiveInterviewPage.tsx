@@ -4,18 +4,24 @@ import {
   Clock3,
   Coffee,
   FastForward,
+  Mic,
   MicOff,
   Pause,
   Send,
   Sparkles,
+  Square,
   TriangleAlert,
+  Volume2,
 } from "lucide-react";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell, Stepper } from "../components/AppShell";
 import { Badge, Button, Card } from "../components/ui";
 import { useSession } from "../context/SessionContext";
+import { useAudioPlayback } from "../hooks/useAudioPlayback";
+import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
+import { fetchQuestionAudio, transcribeRecording, VoiceRequestError } from "../services/voiceClient";
 
 function elapsed(startedAt: string) {
   const seconds = Math.max(
@@ -30,6 +36,12 @@ export function LiveInterviewPage() {
   const [text, setText] = useState("");
   const [time, setTime] = useState("00:00");
   const [paused, setPaused] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const spokenQuestionRef = useRef<string | null>(null);
+  const playback = useAudioPlayback();
+  const recorder = useMicrophoneRecorder();
+  const voiceBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
   useEffect(() => {
     if (!session || paused) return;
     const tick = () => setTime(elapsed(session.startedAt));
@@ -37,6 +49,28 @@ export function LiveInterviewPage() {
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [session, paused]);
+  const index = session?.answers.length ?? 0;
+  const current = session?.questions[index];
+  const done = !current;
+  const latestCalibration = session?.calibration.at(-1);
+  const progress = session ? Math.round((index / session.questionCount) * 100) : 0;
+  const isBackend = session?.mode === "backend";
+  const playCurrentQuestion = useCallback(async () => {
+    if (!isBackend || !current) return;
+    setVoiceError(null);
+    try {
+      const audio = await fetchQuestionAudio(voiceBaseUrl, current.prompt);
+      await playback.play(audio);
+    } catch (cause) {
+      if (cause instanceof VoiceRequestError) setVoiceError(cause.message);
+      else if (!playback.error) setVoiceError("The question audio could not be played. Try replaying it.");
+    }
+  }, [current, isBackend, playback, voiceBaseUrl]);
+  useEffect(() => {
+    if (!isBackend || !current || spokenQuestionRef.current === current.id) return;
+    spokenQuestionRef.current = current.id;
+    void playCurrentQuestion();
+  }, [current, isBackend, playCurrentQuestion]);
   if (!session)
     return (
       <AppShell>
@@ -48,12 +82,27 @@ export function LiveInterviewPage() {
         </main>
       </AppShell>
     );
-  const index = session.answers.length;
-  const current = session.questions[index];
-  const done = !current;
-  const latestCalibration = session.calibration.at(-1);
-  const progress = Math.round((index / session.questionCount) * 100);
-  const isBackend = session?.mode === "backend";
+  async function startRecording() {
+    setVoiceError(null);
+    try {
+      await recorder.start();
+    } catch (cause) {
+      setVoiceError(cause instanceof Error ? cause.message : "Unable to start microphone recording.");
+    }
+  }
+  async function stopRecordingAndTranscribe() {
+    setVoiceError(null);
+    try {
+      const recording = await recorder.stop();
+      setTranscribing(true);
+      const transcript = await transcribeRecording(voiceBaseUrl, recording);
+      setText(transcript);
+    } catch (cause) {
+      setVoiceError(cause instanceof Error ? cause.message : "Unable to transcribe the recording.");
+    } finally {
+      setTranscribing(false);
+    }
+  }
   async function submit() {
     if (!text.trim() || done) return;
     const accepted = await answer(text);
@@ -87,10 +136,10 @@ export function LiveInterviewPage() {
                 </div>
                 <div>
                   <span className="speaking-pill">
-                    <i /> {isBackend ? "Text-only backend session" : "Text-only simulated interviewer"}
+                    <i /> {playback.status === "playing" ? "Interviewer is speaking" : recorder.status === "recording" ? "Listening to your answer" : isBackend ? "Voice interviewer ready" : "Text-only simulated interviewer"}
                   </span>
                   <h2>RUPrepped Interviewer</h2>
-                  <p>Voice service not connected</p>
+                  <p>{isBackend ? "ElevenLabs question voice and answer transcription" : "Voice service is available in backend mode"}</p>
                 </div>
                 <div className="progress-circle">
                   <strong>{index + (done ? 0 : 1)}</strong>
@@ -109,15 +158,18 @@ export function LiveInterviewPage() {
                     {current.category} · ~{current.estimatedMinutes} min
                   </Badge>
                   <h1>{current.prompt}</h1>
+                  {isBackend && <Button type="button" variant="secondary" className="voice-replay" onClick={() => void playCurrentQuestion()} disabled={paused || playback.status === "loading" || recorder.status === "recording"}>
+                    <Volume2 size={16} /> {playback.status === "playing" ? "Playing question…" : "Replay question"}
+                  </Button>}
                   <div className="answer-box">
-                    <label htmlFor="answer">Your simulated text answer</label>
+                    <label htmlFor="answer">{isBackend ? "Your answer transcript" : "Your simulated text answer"}</label>
                     <textarea
                       id="answer"
                       value={text}
                       onChange={(e) => setText(e.target.value)}
-                      placeholder="Type your answer here. This interface does not record audio or analyze your camera."
+                      placeholder={isBackend ? "Record an answer or type your transcript here." : "Type your answer here. This interface does not record audio or analyze your camera."}
                       rows={6}
-                      disabled={paused || busy}
+                      disabled={paused || busy || recorder.status === "recording" || transcribing}
                     />
                     <div>
                       <small>
@@ -126,7 +178,7 @@ export function LiveInterviewPage() {
                       <Button
                         type="button"
                         onClick={submit}
-                        disabled={!text.trim() || paused || busy}
+                        disabled={!text.trim() || paused || busy || transcribing}
                       >
                         {busy ? (
                           "Sending…"
@@ -146,9 +198,16 @@ export function LiveInterviewPage() {
                 <Pause size={17} />{" "}
                 {paused ? "Resume simulation" : "Pause simulation"}
               </button>
-              <span>
-                <MicOff size={16} /> Microphone not connected
-              </span>
+              {isBackend ? recorder.status === "recording" ? (
+                <button type="button" onClick={() => void stopRecordingAndTranscribe()} disabled={paused || transcribing}>
+                  <Square size={16} /> Stop &amp; transcribe
+                </button>
+              ) : (
+                <button type="button" onClick={() => void startRecording()} disabled={paused || busy || transcribing || done}>
+                  <Mic size={16} /> {recorder.status === "requesting-permission" ? "Requesting microphone…" : "Record answer"}
+                </button>
+              ) : <span><MicOff size={16} /> Microphone available in backend mode</span>}
+              {transcribing && <span><Mic size={16} /> Transcribing your answer…</span>}
               <button
                 type="button"
                 className="finish"
@@ -158,7 +217,7 @@ export function LiveInterviewPage() {
                 <FastForward size={17} /> Finish Interview
               </button>
             </Card>
-            {error && <p className="error-message" role="alert">{error} {!busy && text.trim() && "Your answer is still here—correct the issue and retry."}</p>}
+            {(error || voiceError || playback.error || recorder.error) && <p className="error-message" role="alert">{error ?? voiceError ?? playback.error ?? recorder.error} {!busy && text.trim() && " Your answer is still here—correct the issue and retry."}</p>}
           </section>
           <aside className="interview-side">
             <Card className="calibration-card">

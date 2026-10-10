@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Iterable
 
 
 DEFAULT_MODEL_ID = "eleven_flash_v2_5"
 DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
+DEFAULT_TRANSCRIPTION_MODEL_ID = "scribe_v2"
 
 
 class SpeechConfigurationError(ValueError):
@@ -21,6 +23,10 @@ class SpeechConfigurationError(ValueError):
 
 class SpeechSynthesisError(RuntimeError):
     """Raised when ElevenLabs cannot generate audio for a prompt."""
+
+
+class SpeechTranscriptionError(RuntimeError):
+    """Raised when ElevenLabs cannot transcribe recorded candidate audio."""
 
 
 @dataclass(frozen=True)
@@ -110,7 +116,6 @@ def synthesize_speech(text: str, *, settings: SpeechSettings | None = None) -> b
 
     try:
         client = _create_client(active_settings.api_key)
-        print(f"DEBUG VOICE ID: '{active_settings.voice_id}'")
         audio = client.text_to_speech.convert(
             text=text.strip(),
             voice_id=active_settings.voice_id,
@@ -122,3 +127,37 @@ def synthesize_speech(text: str, *, settings: SpeechSettings | None = None) -> b
         raise
     except Exception as error:
         raise SpeechSynthesisError(_provider_error_message(error)) from error
+
+
+def transcribe_audio(
+    audio: bytes,
+    *,
+    filename: str = "answer.webm",
+    settings: SpeechSettings | None = None,
+) -> str:
+    """Return a non-empty transcript for a browser-recorded audio file.
+
+    The file is held in memory only for the request.  Callers are responsible
+    for validating file type and size before invoking this provider boundary.
+    """
+    if not audio:
+        raise ValueError("Recorded audio must not be empty.")
+
+    active_settings = settings or SpeechSettings.from_environment()
+    audio_file = BytesIO(audio)
+    audio_file.name = filename
+
+    try:
+        client = _create_client(active_settings.api_key)
+        transcription = client.speech_to_text.convert(
+            file=audio_file,
+            model_id=DEFAULT_TRANSCRIPTION_MODEL_ID,
+        )
+        transcript = getattr(transcription, "text", "")
+        if not isinstance(transcript, str) or not transcript.strip():
+            raise SpeechTranscriptionError("ElevenLabs returned an empty transcript. Please record your answer again.")
+        return transcript.strip()
+    except (SpeechConfigurationError, SpeechTranscriptionError):
+        raise
+    except Exception as error:
+        raise SpeechTranscriptionError("ElevenLabs could not transcribe the recorded answer. Please try again.") from error

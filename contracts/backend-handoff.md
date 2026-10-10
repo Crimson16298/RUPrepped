@@ -22,6 +22,8 @@ OpenAPI: `http://127.0.0.1:8000/docs`.
 | `POST` | `/api/sessions` | Create an in-memory interview session. |
 | `POST` | `/api/sessions/{session_id}/start` | Start once and receive question one. |
 | `POST` | `/api/sessions/{session_id}/answers` | Submit the current answer, receive mock feedback and the next question. |
+| `POST` | `/api/voice/synthesize` | Convert a question-text JSON body into playable MP3 audio. |
+| `POST` | `/api/voice/transcribe` | Convert one browser-recorded multipart audio file into a transcript. |
 
 Create a session:
 
@@ -80,9 +82,27 @@ codes for repeat start, answering before start, duplicate/out-of-order answers,
 and completed sessions. Local React development origins on ports `3000` and
 `5173` are permitted by CORS.
 
-ElevenLabs integration should pass recognized text as `transcript`. It may pass
-an opaque recording or turn identifier through `audio_reference`; this API does
-not accept audio uploads.
+P4.3 voice integration is contained in `backend/app/services/speech.py`,
+`frontend/src/services/voiceClient.ts`, and the reusable hooks
+`frontend/src/hooks/useAudioPlayback.ts` and
+`frontend/src/hooks/useMicrophoneRecorder.ts`. `LiveInterviewPage` automatically
+requests question audio in backend mode, offers Replay question, records an
+answer, then places the returned transcript in the existing answer textarea.
+The user still reviews and submits that transcript through the existing session
+endpoint, preserving Person 1's answer lifecycle.
+
+Use JSON `{ "text": "..." }` with `/api/voice/synthesize`; its response is
+`audio/mpeg`. Use multipart field `file` with `/api/voice/transcribe`; its
+response is `{ "transcript": "..." }`. The frontend prefers WebM/Opus and
+falls back to MP4 or OGG, all of which ElevenLabs Scribe accepts. Keep
+`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` in the backend `.env` only; no
+`VITE_` ElevenLabs variables are required or permitted.
+
+Person 1 does not need to add session routes or alter schemas for P4.3. For a
+future Gemini turn engine, call the same synthesis endpoint after every new
+question and pass the transcription result into the existing answer/evaluation
+path. The optional `audio_reference` remains available for a future durable
+recording identifier; P4.3 intentionally does not retain raw candidate audio.
 
 ## Presage and calibration integration
 

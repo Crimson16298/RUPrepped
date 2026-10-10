@@ -3,11 +3,13 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from backend.app.services.speech import (
+from app.services.speech import (
     SpeechConfigurationError,
     SpeechSynthesisError,
+    SpeechTranscriptionError,
     SpeechSettings,
     synthesize_speech,
+    transcribe_audio,
 )
 
 
@@ -21,7 +23,7 @@ class SpeechServiceTests(unittest.TestCase):
             model_id="test-model",
         )
 
-        with patch("backend.app.services.speech._create_client", return_value=client):
+        with patch("app.services.speech._create_client", return_value=client):
             audio = synthesize_speech("  Please introduce yourself.  ", settings=settings)
 
         self.assertEqual(audio, b"mp3-audio")
@@ -34,7 +36,7 @@ class SpeechServiceTests(unittest.TestCase):
 
     def test_environment_settings_require_key_and_voice_id(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
-            with patch("backend.app.services.speech._load_dotenv_if_available"):
+            with patch("app.services.speech._load_dotenv_if_available"):
                 with self.assertRaises(SpeechConfigurationError) as context:
                     SpeechSettings.from_environment()
 
@@ -54,15 +56,39 @@ class SpeechServiceTests(unittest.TestCase):
         client.text_to_speech.convert.return_value = iter(())
         settings = SpeechSettings("test-key", "library-voice")
 
-        with patch("backend.app.services.speech._create_client", return_value=client):
+        with patch("app.services.speech._create_client", return_value=client):
             with patch(
-                "backend.app.services.speech._audio_bytes",
+                "app.services.speech._audio_bytes",
                 side_effect=PaidPlanRequiredError(),
             ):
                 with self.assertRaisesRegex(
                     SpeechSynthesisError, "Free accounts cannot use Voice Library voices"
                 ):
                     synthesize_speech("Please introduce yourself.", settings=settings)
+
+    def test_transcribe_audio_returns_provider_transcript(self) -> None:
+        client = Mock()
+        client.speech_to_text.convert.return_value = Mock(text="  I would start by validating the request.  ")
+        settings = SpeechSettings("test-key", "test-voice")
+
+        with patch("app.services.speech._create_client", return_value=client):
+            transcript = transcribe_audio(b"webm-bytes", filename="answer.webm", settings=settings)
+
+        self.assertEqual(transcript, "I would start by validating the request.")
+        uploaded_file = client.speech_to_text.convert.call_args.kwargs["file"]
+        self.assertEqual(uploaded_file.name, "answer.webm")
+        self.assertEqual(uploaded_file.read(), b"webm-bytes")
+        self.assertEqual(
+            client.speech_to_text.convert.call_args.kwargs["model_id"], "scribe_v2"
+        )
+
+    def test_transcribe_audio_rejects_empty_provider_transcript(self) -> None:
+        client = Mock()
+        client.speech_to_text.convert.return_value = Mock(text="   ")
+
+        with patch("app.services.speech._create_client", return_value=client):
+            with self.assertRaisesRegex(SpeechTranscriptionError, "empty transcript"):
+                transcribe_audio(b"webm-bytes", settings=SpeechSettings("test-key", "voice"))
 
 
 if __name__ == "__main__":

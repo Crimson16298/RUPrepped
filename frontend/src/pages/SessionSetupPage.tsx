@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { AppShell, Stepper } from "../components/AppShell";
 import { Badge, Button, Card } from "../components/ui";
 import { useSession } from "../context/SessionContext";
+import { interviewMode } from "../services/interviewAdapter";
 import type { Difficulty, PracticeType } from "../types/interview";
 
 const modes: Array<{
@@ -60,7 +61,7 @@ export function SessionSetupPage() {
   const [resumeName, setResumeName] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await start({
+    const started = await start({
       practiceType,
       objective: objective.trim() || "General practice",
       jobDescription,
@@ -68,7 +69,7 @@ export function SessionSetupPage() {
       lengthMinutes,
       cameraEnabled,
     });
-    navigate("/interview");
+    if (started) navigate("/interview");
   }
   return (
     <AppShell>
@@ -141,8 +142,8 @@ export function SessionSetupPage() {
                 />
               </label>
               <p className="field-note">
-                Mock mode does not upload, read, transmit, or parse selected
-                resume files.
+                Resume files are not uploaded, read, transmitted, or parsed by
+                the current frontend integration.
               </p>
             </Card>
           </div>
@@ -186,7 +187,7 @@ export function SessionSetupPage() {
                   </strong>
                   <p>
                     Future sessions may offer an optional camera signal. It is
-                    unavailable in this mock demo and never claims to measure
+                    unavailable in the current integration and never claims to measure
                     emotions or medical data.
                   </p>
                   <button
@@ -217,8 +218,7 @@ export function SessionSetupPage() {
             </Button>
             {error && <p className="error-message">{error}</p>}
             <p className="demo-note">
-              <Sparkles size={15} /> You’re starting a simulated, text-only
-              interview.
+              <Sparkles size={15} /> {interviewMode === "backend" ? "You’re starting a text-only interview backed by the local API." : "You’re starting a simulated, text-only interview."}
             </p>
           </aside>
         </form>

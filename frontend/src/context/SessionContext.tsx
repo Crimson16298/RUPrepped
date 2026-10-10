@@ -1,15 +1,17 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
-import { mockInterviewAdapter } from '../services/mockInterviewAdapter'
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { interviewAdapter } from '../services/interviewAdapter'
+import { ApiRequestError } from '../services/httpInterviewAdapter'
 import type { InterviewSession, SessionResults, SessionSetup } from '../types/interview'
 
-interface SessionContextValue { session: InterviewSession | null; results: SessionResults | null; busy: boolean; error: string | null; start: (setup: SessionSetup) => Promise<void>; answer: (text: string) => Promise<void>; finish: () => Promise<void>; reset: () => void }
+interface SessionContextValue { session: InterviewSession | null; results: SessionResults | null; busy: boolean; error: string | null; start: (setup: SessionSetup) => Promise<boolean>; answer: (text: string) => Promise<boolean>; finish: () => Promise<boolean>; reset: () => void }
 const SessionContext = createContext<SessionContextValue | undefined>(undefined)
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<InterviewSession | null>(null); const [results, setResults] = useState<SessionResults | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null)
+  const [session, setSession] = useState<InterviewSession | null>(null); const [results, setResults] = useState<SessionResults | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const requestInFlight = useRef(false)
+  const messageFor = (cause: unknown, fallback: string) => cause instanceof ApiRequestError ? cause.status === 409 ? `${cause.message} Refresh or retry only after confirming the current question.` : cause.message : fallback
   const value = useMemo<SessionContextValue>(() => ({ session, results, busy, error,
-    async start(setup) { setBusy(true); setError(null); try { setSession(await mockInterviewAdapter.createSession(setup)); setResults(null) } catch { setError('Unable to start the mock interview. Please try again.') } finally { setBusy(false) } },
-    async answer(text) { if (!session) return; setBusy(true); setError(null); try { const update = await mockInterviewAdapter.submitAnswer(session, text); setSession(update.session) } catch { setError('Your simulated answer could not be submitted. Please try again.') } finally { setBusy(false) } },
-    async finish() { if (!session) return; setBusy(true); try { setResults(await mockInterviewAdapter.finishSession(session)); setSession({ ...session, status: 'complete' }) } catch { setError('Results could not be generated in mock mode.') } finally { setBusy(false) } },
+    async start(setup) { if (requestInFlight.current) return false; requestInFlight.current = true; setBusy(true); setError(null); try { setSession(await interviewAdapter.createSession(setup)); setResults(null); return true } catch (cause) { setError(messageFor(cause, 'Unable to start this interview. Please try again.')); return false } finally { requestInFlight.current = false; setBusy(false) } },
+    async answer(text) { if (!session || requestInFlight.current) return false; requestInFlight.current = true; setBusy(true); setError(null); try { const update = await interviewAdapter.submitAnswer(session, text); setSession(update.session); return true } catch (cause) { setError(messageFor(cause, 'Your answer could not be submitted. Please try again.')); return false } finally { requestInFlight.current = false; setBusy(false) } },
+    async finish() { if (!session || requestInFlight.current) return false; requestInFlight.current = true; setBusy(true); setError(null); try { setResults(await interviewAdapter.finishSession(session)); if (session.mode === 'mock') setSession({ ...session, status: 'complete' }); return true } catch (cause) { setError(messageFor(cause, 'Results could not be generated. Please try again.')); return false } finally { requestInFlight.current = false; setBusy(false) } },
     reset() { setSession(null); setResults(null); setError(null) },
   }), [session, results, busy, error])
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

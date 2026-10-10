@@ -15,4 +15,9 @@ venv/
 *.mp3
 
 # Local generated files
-backend/.local/
+backend/.local/.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example

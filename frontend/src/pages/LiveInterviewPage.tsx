@@ -52,15 +52,16 @@ export function LiveInterviewPage() {
   const current = session.questions[index];
   const done = !current;
   const latestCalibration = session.calibration.at(-1);
-  const progress = Math.round((index / session.questions.length) * 100);
+  const progress = Math.round((index / session.questionCount) * 100);
+  const isBackend = session?.mode === "backend";
   async function submit() {
     if (!text.trim() || done) return;
-    await answer(text);
-    setText("");
+    const accepted = await answer(text);
+    if (accepted) setText("");
   }
   async function complete() {
-    await finish();
-    navigate("/results");
+    const completed = await finish();
+    if (completed) navigate("/results");
   }
   return (
     <AppShell>
@@ -68,7 +69,7 @@ export function LiveInterviewPage() {
         <Stepper current={2} />
         <div className="interview-meta">
           <div>
-            <Badge>Mock interview in progress</Badge>
+              <Badge>{isBackend ? "Backend interview in progress" : "Mock interview in progress"}</Badge>
             <span>{session.setup.objective}</span>
           </div>
           <div>
@@ -86,14 +87,14 @@ export function LiveInterviewPage() {
                 </div>
                 <div>
                   <span className="speaking-pill">
-                    <i /> Text-only simulated interviewer
+                    <i /> {isBackend ? "Text-only backend session" : "Text-only simulated interviewer"}
                   </span>
                   <h2>RUPrepped Interviewer</h2>
                   <p>Voice service not connected</p>
                 </div>
                 <div className="progress-circle">
                   <strong>{index + (done ? 0 : 1)}</strong>
-                  <small>of {session.questions.length}</small>
+                  <small>of {session.questionCount}</small>
                 </div>
               </div>
               {done ? (
@@ -114,7 +115,7 @@ export function LiveInterviewPage() {
                       id="answer"
                       value={text}
                       onChange={(e) => setText(e.target.value)}
-                      placeholder="Type your answer here. This demo does not record audio or analyze your camera."
+                      placeholder="Type your answer here. This interface does not record audio or analyze your camera."
                       rows={6}
                       disabled={paused || busy}
                     />
@@ -146,18 +147,18 @@ export function LiveInterviewPage() {
                 {paused ? "Resume simulation" : "Pause simulation"}
               </button>
               <span>
-                <MicOff size={16} /> Microphone unavailable in mock mode
+                <MicOff size={16} /> Microphone not connected
               </span>
               <button
                 type="button"
                 className="finish"
                 onClick={complete}
-                disabled={busy}
+                disabled={busy || (isBackend && !done)}
               >
                 <FastForward size={17} /> Finish Interview
               </button>
             </Card>
-            {error && <p className="error-message">{error}</p>}
+            {error && <p className="error-message" role="alert">{error} {!busy && text.trim() && "Your answer is still here—correct the issue and retry."}</p>}
           </section>
           <aside className="interview-side">
             <Card className="calibration-card">
@@ -193,8 +194,8 @@ export function LiveInterviewPage() {
               <div className="signal-status">
                 <Coffee size={16} />
                 <span>
-                  <strong>Camera signal unavailable</strong>Mock demo uses no
-                  camera or physiological input.
+                  <strong>Camera signal unavailable</strong>The current backend
+                  does not provide camera or physiological input.
                 </span>
               </div>
             </Card>
@@ -219,6 +220,7 @@ export function LiveInterviewPage() {
                 ))}
               </div>
             </Card>
+            {session.answers.at(-1)?.evaluation && <Card className="transcript-card"><div className="side-title"><div><small>LATEST BACKEND EVALUATION</small><h2>{session.answers.at(-1)?.evaluation?.score}/100</h2></div><Badge tone="muted">{session.answers.at(-1)?.evaluation?.evaluationSource}</Badge></div><p className="evaluation-copy">{session.answers.at(-1)?.evaluation?.feedback}</p></Card>}
           </aside>
         </div>
         <div className="progress-footer">
@@ -227,7 +229,7 @@ export function LiveInterviewPage() {
             <i style={{ width: `${progress}%` }} />
           </div>
           <strong>
-            {index} of {session.questions.length} answered
+            {index} of {session.questionCount} answered
           </strong>
         </div>
       </main>

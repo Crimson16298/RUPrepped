@@ -8,6 +8,7 @@ export const mockQuestions: Question[] = [
 ]
 
 export const mockResults = (questions: Question[]): SessionResults => ({
+  mode: 'mock',
   overallScore: 82, contentScore: 84, deliveryScore: 78,
   strengths: ['You used clear, concrete examples to support your answers.', 'Your answers showed thoughtful trade-off awareness.', 'You maintained a focused structure across the session.'],
   opportunities: ['Lead with your conclusion before adding supporting detail.', 'Add a measurable result when describing projects.', 'Practice a shorter final summary for time-limited answers.'],

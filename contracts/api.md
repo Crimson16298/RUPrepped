@@ -272,6 +272,48 @@ before start, `409 session_completed` after completion, `409 question_not_curren
 for an unknown/out-of-order question, and `409 question_already_answered` for a
 duplicate. Invalid request fields return `422` with the shared error envelope.
 
+## Implemented voice endpoints (P4.3)
+
+ElevenLabs credentials remain server-only. The browser communicates only with
+these FastAPI endpoints. Voice endpoints use the same error envelope as the
+session API and do not create or change a session by themselves.
+
+### `POST /api/voice/synthesize`
+
+Accepts question text and returns MP3 audio (`Content-Type: audio/mpeg`). The
+frontend should create an object URL from the response Blob and play it with an
+`HTMLAudioElement`.
+
+```json
+{ "text": "Tell me about a time you received constructive feedback." }
+```
+
+Successful responses set `Cache-Control: no-store`. A missing server-side
+ElevenLabs configuration returns `503 speech_not_configured`; an upstream TTS
+failure returns `502 speech_synthesis_failed`.
+
+### `POST /api/voice/transcribe`
+
+Accepts a multipart upload with one `file` field and returns its recognized
+text. Browser recording clients should prefer `audio/webm;codecs=opus` and may
+fall back to MP4 or OGG. The backend also accepts MP3, WAV, Opus, and AAC.
+
+```text
+Content-Type: multipart/form-data
+file: answer.webm (audio/webm)
+```
+
+```json
+{ "transcript": "I would begin by validating the request at the API boundary." }
+```
+
+Each recording is processed in memory and must be non-empty and no larger than
+25 MB. Recoverable errors include `415 unsupported_recording_format`, `422
+empty_recording`, `413 recording_too_large`, `503 speech_not_configured`, and
+`502 transcription_failed`. Submit the returned `transcript` unchanged to the
+existing `POST /api/sessions/{id}/answers` endpoint with the current
+`question_id`.
+
 ## Planned endpoints (not implemented in Milestone 1B)
 
 ### `POST /api/sessions/{id}/metrics`

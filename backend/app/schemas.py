@@ -130,3 +130,18 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+class SpeechSynthesisRequest(BaseModel):
+    text: Annotated[str, Field(min_length=1, max_length=5_000)]
+
+    @field_validator("text")
+    @classmethod
+    def text_must_contain_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Speech text must contain non-whitespace text.")
+        return value.strip()
+
+
+class TranscriptionResponse(BaseModel):
+    transcript: str

@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.api import routes
 from app.api.routes import store
 from app.main import app
 
@@ -23,6 +24,46 @@ def test_react_development_origin_is_allowed() -> None:
     )
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_synthesize_question_audio_returns_playable_mp3(monkeypatch) -> None:
+    monkeypatch.setattr(routes, "synthesize_speech", lambda text: b"mock-mp3:" + text.encode())
+
+    response = client.post("/api/voice/synthesize", json={"text": "Please introduce yourself."})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/mpeg"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.content == b"mock-mp3:Please introduce yourself."
+
+
+def test_transcribe_recording_returns_provider_transcript(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_transcribe(audio: bytes, *, filename: str) -> str:
+        captured["audio"] = audio
+        captured["filename"] = filename
+        return "I would explain the trade-off first."
+
+    monkeypatch.setattr(routes, "transcribe_audio", fake_transcribe)
+    response = client.post(
+        "/api/voice/transcribe",
+        files={"file": ("answer.webm", b"webm-recording", "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"transcript": "I would explain the trade-off first."}
+    assert captured == {"audio": b"webm-recording", "filename": "answer.webm"}
+
+
+def test_transcribe_recording_rejects_unsupported_format() -> None:
+    response = client.post(
+        "/api/voice/transcribe",
+        files={"file": ("answer.txt", b"not-a-recording", "text/plain")},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_recording_format"
 
 
 def test_create_then_start_session_returns_deterministic_question() -> None:

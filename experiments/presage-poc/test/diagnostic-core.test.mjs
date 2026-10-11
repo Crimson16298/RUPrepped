@@ -43,16 +43,26 @@ test('TC08 maps SDK input-unavailable startup errors to a camera or permission f
   assert.equal(sdk.stopCalls, 1); assert.equal(sdk.destroyCalls, 1);
 });
 
-test('validation codes 7 and 16 use installed SDK meanings and repeat counts', () => {
+test('validation codes 0, 7, 16, and 17 use shared UI-safe SDK meanings and repeat counts', () => {
+  assert.deepEqual(describeValidationCode(0), {
+    name: 'ok',
+    message: 'Frame passes the SDK readiness checks.',
+    action: 'Hold the current position while readings stabilize.',
+  });
   assert.deepEqual(describeValidationCode(7), {
     name: 'chestNotVisible',
-    message: 'Chest is not visible or is too far away for breathing/chest metrics.',
-    action: 'Reframe so the upper chest is visible and unobstructed.',
+    message: 'Your upper chest is not visible or is too far away.',
+    action: 'Reframe so your upper chest is visible and unobstructed.',
   });
   assert.deepEqual(describeValidationCode(16), {
     name: 'faceTooLow',
-    message: 'Face is too low in the frame.',
-    action: 'Move up or tilt the camera down.',
+    message: 'Your face is too low in the frame.',
+    action: 'Raise your face in the frame or adjust the camera angle.',
+  });
+  assert.deepEqual(describeValidationCode(17), {
+    name: 'faceNotForward',
+    message: 'Your face is turned or tilted away from the camera.',
+    action: 'Face the camera directly.',
   });
   assert.deepEqual(summarizeValidationStatus(new Map([
     [16, { count: 2, hintPresent: true }],

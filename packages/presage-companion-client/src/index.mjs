@@ -23,7 +23,9 @@ export function consumeSseBlocks(buffer, onEvent) {
     remainder = remainder.slice(boundary + 2);
     const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n');
     if (!data) continue;
-    try { onEvent(JSON.parse(data)); } catch { /* Ignore malformed SSE data from an untrusted local process. */ }
+    let event;
+    try { event = JSON.parse(data); } catch { continue; }
+    onEvent(event);
   }
 }
 
@@ -42,16 +44,20 @@ export function createPresageCompanionClient({ baseUrl = 'http://127.0.0.1:8765'
 
   return {
     async status() { return (await request('/v1/presage/status')).json(); },
-    async start(sessionId) {
-      return (await request('/v1/presage/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, consent: true }) })).json();
+    async start(sessionId, ownerToken, { signal } = {}) {
+      return (await request('/v1/presage/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, consent: true, ownerToken }), signal })).json();
     },
-    async stop(sessionId) {
-      return (await request('/v1/presage/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId }) })).json();
+    async heartbeat(sessionId, ownerToken) {
+      return (await request('/v1/presage/heartbeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, ownerToken }) })).json();
     },
-    async subscribe(sessionId, { onEvent, signal } = {}) {
+    async stop(sessionId, ownerToken) {
+      return (await request('/v1/presage/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, ownerToken }), keepalive: true })).json();
+    },
+    async subscribe(sessionId, { onEvent, onConnected, signal } = {}) {
       if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
       const response = await request(`/v1/presage/events?sessionId=${encodeURIComponent(sessionId)}`, { headers: { Accept: 'text/event-stream' }, signal });
       if (!response.body) throw new Error('companion_stream_unavailable');
+      onConnected?.(response.status);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let remainder = '';

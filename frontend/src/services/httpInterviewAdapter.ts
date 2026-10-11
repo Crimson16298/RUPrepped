@@ -69,7 +69,7 @@ export function createHttpInterviewAdapter(baseUrl: string, options: HttpIntervi
   }
   return {
     async createSession(setup) {
-      const payload = { interview_type: toInterviewType(setup.practiceType), difficulty: setup.difficulty, question_count: 3, target_role_or_subject: setup.objective.trim() || undefined, job_description: setup.jobDescription.trim() || undefined }
+      const payload = { interview_type: toInterviewType(setup.practiceType), difficulty: setup.difficulty, question_count: 3, target_role_or_subject: setup.objective.trim() || undefined, job_description: setup.jobDescription.trim() || undefined, resume_text: setup.resumeText?.trim() || undefined }
       const created = await request<CreateSessionResponse>('/api/sessions', { method: 'POST', body: JSON.stringify(payload) })
       requireString(created.session_id, 'session_id')
       const started = await request<StartSessionResponse>(`/api/sessions/${encodeURIComponent(created.session_id)}/start`, { method: 'POST', body: '{}' })

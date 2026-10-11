@@ -10,13 +10,17 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell, Stepper } from "../components/AppShell";
 import { Badge, Button, Card } from "../components/ui";
 import { useSession } from "../context/SessionContext";
 import { interviewMode } from "../services/interviewAdapter";
+import { extractResume } from "../services/resumeClient";
 import type { Difficulty, PracticeType } from "../types/interview";
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+type ResumeUploadStatus = "idle" | "uploading" | "success" | "error";
 
 const modes: Array<{
   id: PracticeType;
@@ -59,12 +63,54 @@ export function SessionSetupPage() {
   const [lengthMinutes, setLength] = useState(10);
   const [cameraConsent, setCameraConsent] = useState(false);
   const [resumeName, setResumeName] = useState("");
+  const [resumeText, setResumeText] = useState("");
+  const [resumeUploadStatus, setResumeUploadStatus] = useState<ResumeUploadStatus>("idle");
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const uploadVersion = useRef(0);
+  const uploadController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => uploadController.current?.abort(), []);
+
+  async function chooseResume(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    uploadVersion.current += 1;
+    const version = uploadVersion.current;
+    uploadController.current?.abort();
+    uploadController.current = null;
+    setResumeName(file?.name ?? "");
+    setResumeText("");
+    setResumeError(null);
+    setResumeUploadStatus(file ? "uploading" : "idle");
+    if (!file) return;
+    if (interviewMode !== "backend") {
+      setResumeUploadStatus("error");
+      setResumeError("Resume personalization is available when backend mode is enabled.");
+      return;
+    }
+    const controller = new AbortController();
+    uploadController.current = controller;
+    try {
+      const extracted = await extractResume(apiBaseUrl, file, controller.signal);
+      if (uploadVersion.current !== version) return;
+      setResumeName(extracted.filename);
+      setResumeText(extracted.resumeText);
+      setResumeUploadStatus("success");
+    } catch (cause) {
+      if (uploadVersion.current !== version || (cause instanceof DOMException && cause.name === "AbortError")) return;
+      setResumeUploadStatus("error");
+      setResumeError(cause instanceof Error ? cause.message : "Unable to extract this resume.");
+    } finally {
+      if (uploadVersion.current === version) uploadController.current = null;
+    }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     const started = await start({
       practiceType,
       objective: objective.trim() || "General practice",
       jobDescription,
+      resumeText: resumeText || undefined,
       difficulty,
       lengthMinutes,
       cameraEnabled: cameraConsent,
@@ -130,21 +176,22 @@ export function SessionSetupPage() {
               <label className="upload-box">
                 <FileUp size={21} />
                 <span>
-                  <strong>{resumeName || "Add a resume"}</strong>
-                  <small>Optional · PDF or text</small>
+                  <strong>{resumeUploadStatus === "uploading" ? "Extracting resume…" : resumeName || "Add a resume"}</strong>
+                  <small>Optional · PDF or TXT · 5 MiB maximum</small>
                 </span>
                 <input
                   type="file"
                   accept=".pdf,.txt"
-                  onChange={(e) =>
-                    setResumeName(e.target.files?.[0]?.name ?? "")
-                  }
+                  aria-label="Add a resume"
+                  onChange={chooseResume}
                 />
               </label>
               <p className="field-note">
-                Resume files are not uploaded, read, transmitted, or parsed by
-                the current frontend integration.
+                {resumeUploadStatus === "success"
+                  ? "Resume extracted and ready to personalize this session."
+                  : "Optional · resume text is sent only to the local interview backend for this session."}
               </p>
+              {resumeError && <p className="error-message resume-error">{resumeError}</p>}
             </Card>
           </div>
           <aside className="setup-side">
@@ -206,8 +253,8 @@ export function SessionSetupPage() {
                 </div>
               </div>
             </Card>
-            <Button type="submit" className="start-button" disabled={busy}>
-              {busy ? (
+            <Button type="submit" className="start-button" disabled={busy || resumeUploadStatus === "uploading"}>
+              {busy || resumeUploadStatus === "uploading" ? (
                 "Preparing session…"
               ) : (
                 <>

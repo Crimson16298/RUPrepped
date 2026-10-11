@@ -5,7 +5,7 @@ export type ProviderMode = 'mock' | 'gemini'
 export type VoiceStatus = 'unavailable' | 'idle' | 'speaking' | 'listening'
 export type SignalAvailability = 'not-requested' | 'permission-denied' | 'unavailable' | 'available'
 
-export interface SessionSetup { practiceType: PracticeType; objective: string; jobDescription: string; difficulty: Difficulty; lengthMinutes: number; cameraEnabled: boolean }
+export interface SessionSetup { practiceType: PracticeType; objective: string; jobDescription: string; resumeText?: string; difficulty: Difficulty; lengthMinutes: number; cameraEnabled: boolean }
 export interface Question {
   id: string
   prompt: string

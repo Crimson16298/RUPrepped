@@ -1,0 +1,17 @@
+{
+  "name": "ruprepped-presage-poc",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Isolated, camera-backed SmartSpectra verification harness for RUPrepped.",
+  "type": "module",
+  "scripts": {
+    "measure": "node src/camera-measurement.mjs",
+    "diagnose:credentials": "node src/credential-diagnostic.mjs",
+    "diagnose": "node src/diagnose.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/camera-measurement.mjs && node --check src/metric-extraction.mjs && node --check src/sdk-options.mjs && node --check src/credential-shape.mjs && node --check src/credential-diagnostic.mjs && node --check src/validation-status.mjs && node --check src/diagnostic-core.mjs && node --check src/diagnose.mjs"
+  },
+  "dependencies": {
+    "@smartspectra/node-sdk": "3.4.0"
+  }
+}

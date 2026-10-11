@@ -6,10 +6,11 @@
   "type": "module",
   "scripts": {
     "measure": "node src/camera-measurement.mjs",
+    "companion": "node src/companion-server.mjs",
     "diagnose:credentials": "node src/credential-diagnostic.mjs",
     "diagnose": "node src/diagnose.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/camera-measurement.mjs && node --check src/metric-extraction.mjs && node --check src/session-measurement-adapter.mjs && node --check src/sdk-options.mjs && node --check src/credential-shape.mjs && node --check src/credential-diagnostic.mjs && node --check src/validation-status.mjs && node --check src/diagnostic-core.mjs && node --check src/diagnose.mjs"
+    "check": "node --check src/camera-measurement.mjs && node --check src/companion-client.mjs && node --check src/companion-core.mjs && node --check src/companion-server-core.mjs && node --check src/companion-server.mjs && node --check src/metric-extraction.mjs && node --check src/session-measurement-adapter.mjs && node --check src/sdk-options.mjs && node --check src/credential-shape.mjs && node --check src/credential-diagnostic.mjs && node --check src/validation-status.mjs && node --check src/diagnostic-core.mjs && node --check src/diagnose.mjs"
   },
   "dependencies": {
     "@smartspectra/node-sdk": "3.4.0"

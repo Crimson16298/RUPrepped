@@ -6,9 +6,9 @@ from fastapi.responses import JSONResponse
 from app.api.routes import router
 
 app = FastAPI(
-    title="RUPrepped Mock API",
-    version="0.1.0",
-    description="Milestone 1A mock backend. External integrations are intentionally disabled.",
+    title="RUPrepped Interview API",
+    version="0.2.0",
+    description="Provider-configurable interview API. Mock mode is the default; Gemini requires server-side configuration.",
 )
 
 # Development-only origins for the React teammates' local dev servers.

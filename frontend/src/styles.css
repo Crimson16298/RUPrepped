@@ -701,6 +701,25 @@ textarea {
   color: #ff9eab;
   font-size: 12px;
 }
+.request-notice {
+  border: 1px solid #774158;
+  border-radius: 10px;
+  background: #2b1725;
+  color: #ffc6d0;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+.request-notice strong {
+  display: block;
+  color: #ffe2e7;
+}
+.request-notice p {
+  margin: 5px 0;
+  line-height: 1.55;
+}
+.request-notice small {
+  color: #eab8c3;
+}
 .interview-page {
   padding-top: 27px;
 }
@@ -724,6 +743,12 @@ textarea {
   color: #dbeaff;
   font-family: "DM Mono";
   font-size: 17px;
+}
+.session-state {
+  margin-left: auto;
+  color: #9cbce8;
+  font: 700 10px "DM Mono";
+  letter-spacing: 0.25px;
 }
 .interview-grid {
   display: grid;
@@ -834,6 +859,10 @@ textarea {
   gap: 6px;
   align-items: center;
   font-size: 11px;
+}
+.controls-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 .controls-card span {
   font-size: 10px;
@@ -1124,6 +1153,51 @@ textarea {
   background: linear-gradient(90deg, #4f96ff, #9d72fd);
   border-radius: 3px;
 }
+.rubric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 11px 0 0;
+}
+.rubric-panel {
+  margin-top: 12px;
+}
+.rubric-panel > small {
+  color: #8196b9;
+  font: 700 8px "DM Mono";
+  letter-spacing: 0.6px;
+}
+.rubric-grid div {
+  border: 1px solid #283c5a;
+  border-radius: 7px;
+  background: #101d30;
+  padding: 7px;
+}
+.rubric-grid dt {
+  color: #8196b9;
+  font: 700 8px "DM Mono";
+  line-height: 1.35;
+}
+.rubric-grid dd {
+  color: #dbeaff;
+  font: 700 12px "DM Mono";
+  margin: 4px 0 0;
+}
+@media (max-width: 980px) {
+  .interview-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 0.75fr);
+  }
+  .interview-meta {
+    flex-wrap: wrap;
+  }
+  .session-state {
+    width: 100%;
+    margin-left: 0;
+  }
+  .rubric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .results-grid aside {
   display: grid;
   gap: 14px;
@@ -1321,6 +1395,9 @@ textarea {
   }
   .timeline article {
     align-items: start;
+  }
+  .rubric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .timeline .badge {
     display: none;

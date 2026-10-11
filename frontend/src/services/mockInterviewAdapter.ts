@@ -7,7 +7,7 @@ const level = (value: number) => Math.min(5, Math.max(1, value)) as 1 | 2 | 3 | 
 export const mockInterviewAdapter: InterviewAdapter = {
   async createSession(setup: SessionSetup): Promise<InterviewSession> {
     const first = mockQuestions[0]
-    return { id: `demo-${Date.now()}`, mode: 'mock', setup, questionCount: mockQuestions.length, questions: mockQuestions, answers: [], calibration: [], startedAt: now(), status: 'active', transcript: [{ id: 'intro', speaker: 'interviewer', text: first.prompt, timestamp: now() }] }
+    return { id: `demo-${Date.now()}`, mode: 'mock', providerMode: 'mock', setup, questionCount: mockQuestions.length, questions: mockQuestions, answers: [], calibration: [], startedAt: now(), status: 'active', transcript: [{ id: 'intro', speaker: 'interviewer', text: first.prompt, timestamp: now() }] }
   },
   async submitAnswer(session, text) {
     const current = session.questions[session.answers.length]

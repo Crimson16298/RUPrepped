@@ -1,9 +1,10 @@
-# RUPrepped API contracts — proposal (Milestone 1B)
+# RUPrepped API contracts — proposal (Milestone 1C)
 
 **Status:** proposed for teammate review, not a stable production API. The
-Milestone 1B mock implements `GET /api/health`, `POST /api/sessions`,
-`POST /api/sessions/{id}/start`, and `POST /api/sessions/{id}/answers`. It makes no calls to Gemini, ElevenLabs,
-Presage, Tiger Data, authentication providers, or a database.
+Milestone 1C implements `GET /api/health`, `POST /api/sessions`,
+`POST /api/sessions/{id}/start`, and `POST /api/sessions/{id}/answers`. Mock
+mode is the default; Gemini mode is server-configured. It does not connect
+ElevenLabs, Presage, Tiger Data, authentication providers, or a database.
 
 All bodies are JSON, names use `snake_case`, and IDs are opaque strings.
 `session_id` currently looks like `ses_<uuidhex>`; clients must not parse it.
@@ -19,6 +20,7 @@ For local frontend development, the mock allows browser requests from
 | `difficulty` | integer `1` through `5`, inclusive |
 | `skill_category` | `"communication"`, `"problem_solving"`, `"teamwork"`, `"technical_fundamentals"` |
 | `session_status` | `"created"`, `"in_progress"`, `"completed"` |
+| `provider_mode` | `"mock"` or `"gemini"`; selected by the backend environment, never by a client request |
 | `question` | `question_id`, `question_text`, `skill_category`, `difficulty`, `interview_type` |
 
 A question always supplies text for the voice/transcript pipeline plus its
@@ -50,6 +52,35 @@ Gemini or persistence integration:
    displayed as Gemini assessment or merged with Person 3 measurements.
 4. Agree on maximum transcript/context sizes and a durable metric taxonomy
    before Tiger Data persistence is introduced.
+
+## Provider configuration and error behavior
+
+Set `INTERVIEW_PROVIDER=mock` (the default) for deterministic testing. Set
+`INTERVIEW_PROVIDER=gemini` plus the server-only `GEMINI_API_KEY` to enable the
+official Google GenAI SDK. Optional server-only settings are `GEMINI_MODEL`
+(default `gemini-3.5-flash-lite`) and `GEMINI_TIMEOUT_MS` (default 10,000; range
+1..60,000). Keys are never returned or logged by this API.
+
+Gemini uses structured JSON output validated by Pydantic. Gemini failures never
+switch a session to mock mode. The backend disables SDK retries (`attempts=1`)
+and applies `GEMINI_TIMEOUT_MS` to each request.
+
+| Condition | API result |
+| --- | --- |
+| Missing server key | `503 provider_not_configured` |
+| Upstream 400 | `502 provider_request_invalid` |
+| Upstream 401/403 | `503 provider_authentication_failed` |
+| Upstream 404 | `503 provider_model_unavailable` |
+| Upstream 429 | `503 provider_rate_limited` |
+| Upstream 5xx | `503 provider_server_error` |
+| Request timeout | `504 provider_timeout` |
+| DNS/TLS/proxy/connection transport error | `503 provider_network_error` |
+| Malformed or duplicate model output | `502 provider_invalid_response` |
+
+Provider errors retain the shared error envelope and may include a safe
+`provider` object containing `operation`, exception class, upstream status, and
+elapsed milliseconds. They never include API keys, authorization headers,
+resume text, prompts, or raw provider response bodies.
 
 ## Interview state machine
 
@@ -90,8 +121,8 @@ and invalid types/values return `422`; unknown resource paths return `404`.
 
 ### `POST /api/sessions`
 
-Creates an in-memory session and deterministically selects mock questions.
-Questions are returned by `/start`, not this endpoint.
+Creates an in-memory session. The first question is generated at `/start` and
+each later question is generated after the preceding answer is evaluated.
 
 Request (new context fields are optional):
 
@@ -121,7 +152,8 @@ and `resume_text` 20,000.
   "interview_type": "technical",
   "difficulty": 3,
   "question_count": 2,
-  "target_role_or_subject": "Backend software engineering intern"
+  "target_role_or_subject": "Backend software engineering intern",
+  "provider_mode": "mock"
 }
 ```
 
@@ -129,8 +161,8 @@ Invalid input returns `422` with the error envelope.
 
 ### `POST /api/sessions/{id}/start`
 
-Marks a `created` session `in_progress` and returns the first question. A
-repeat call returns `409 session_already_started`.
+Marks a `created` session `in_progress` and generates the first question using
+the session's provider. A repeat call returns `409 session_already_started`.
 
 `200 OK`:
 
@@ -193,9 +225,24 @@ characters.
     "evaluation_source": "mock_deterministic",
     "is_mock": true,
     "score": 70,
+    "rubric": {
+      "relevance": 72,
+      "completeness": 65,
+      "clarity": 72,
+      "reasoning": 68,
+      "technical_correctness": null,
+      "concrete_details": 60
+    },
     "strengths": ["Provided a relevant response with a clear starting point."],
     "improvements": ["Add more context, actions, and an outcome to strengthen the answer."],
     "feedback": "Mock evaluation: expand the example into a complete explanation."
+  },
+  "difficulty_adjustment": {
+    "previous_difficulty": 3,
+    "next_difficulty": 3,
+    "decision": "maintain",
+    "rationale": "The evaluation score is in the middle range, so the next question keeps the current difficulty.",
+    "source": "evaluation"
   },
   "next_question": {
     "question_id": "q_technical-debugging_3",
@@ -208,8 +255,17 @@ characters.
 ```
 
 `evaluation_source: "mock_deterministic"` and `is_mock: true` are mandatory:
-this is transparent placeholder feedback, not Gemini assessment. After the
-last answer, `session_status` is `"completed"` and `next_question` is `null`.
+this is transparent placeholder feedback, not Gemini assessment. Gemini mode
+returns `evaluation_source: "gemini"` and `is_mock: false` with the same
+response schema. The rubric scores relevance, completeness, clarity, reasoning,
+concrete supporting details, and technical correctness only when applicable;
+it never scores delivery, vocal confidence, pace, or physiology.
+
+The backend applies a bounded policy: score `>=80` increases the next question
+one level unless at level 5; score `<=49` decreases one level unless at level
+1; other scores maintain difficulty. The response includes the decision and
+rationale. After the last answer, `session_status` is `"completed"` and
+`next_question` is `null`.
 
 Return `404 session_not_found` for an unknown session; `409 session_not_started`
 before start, `409 session_completed` after completion, `409 question_not_current`

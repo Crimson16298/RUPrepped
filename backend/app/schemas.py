@@ -18,6 +18,11 @@ class SessionStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class ProviderMode(str, Enum):
+    MOCK = "mock"
+    GEMINI = "gemini"
+
+
 class SkillCategory(str, Enum):
     COMMUNICATION = "communication"
     PROBLEM_SOLVING = "problem_solving"
@@ -52,6 +57,7 @@ class SessionResponse(BaseModel):
     difficulty: Difficulty
     question_count: int
     target_role_or_subject: str | None = None
+    provider_mode: ProviderMode
 
 
 class StartSessionResponse(SessionResponse):
@@ -72,13 +78,31 @@ class AnswerSubmissionRequest(BaseModel):
         return value.strip()
 
 
+class RubricScores(BaseModel):
+    relevance: Annotated[int, Field(ge=0, le=100)]
+    completeness: Annotated[int, Field(ge=0, le=100)]
+    clarity: Annotated[int, Field(ge=0, le=100)]
+    reasoning: Annotated[int, Field(ge=0, le=100)]
+    technical_correctness: Annotated[int, Field(ge=0, le=100)] | None = None
+    concrete_details: Annotated[int, Field(ge=0, le=100)]
+
+
 class AnswerEvaluation(BaseModel):
-    evaluation_source: Literal["mock_deterministic"]
-    is_mock: Literal[True]
+    evaluation_source: Literal["mock_deterministic", "gemini"]
+    is_mock: bool
     score: Annotated[int, Field(ge=0, le=100)]
+    rubric: RubricScores
     strengths: list[str]
     improvements: list[str]
     feedback: str
+
+
+class DifficultyAdjustment(BaseModel):
+    previous_difficulty: Difficulty
+    next_difficulty: Difficulty
+    decision: Literal["increase", "maintain", "decrease"]
+    rationale: str
+    source: Literal["evaluation"] = "evaluation"
 
 
 class AnswerSubmissionResponse(BaseModel):
@@ -88,6 +112,7 @@ class AnswerSubmissionResponse(BaseModel):
     status: Literal["accepted"]
     session_status: SessionStatus
     evaluation: AnswerEvaluation
+    difficulty_adjustment: DifficultyAdjustment
     next_question: Question | None = None
 
 
@@ -100,6 +125,7 @@ class ErrorDetail(BaseModel):
     code: str
     message: str
     fields: dict[str, str] | None = None
+    provider: dict[str, str | int] | None = None
 
 
 class ErrorResponse(BaseModel):

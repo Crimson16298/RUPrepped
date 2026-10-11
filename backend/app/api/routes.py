@@ -8,12 +8,11 @@ from app.schemas import (
     AnswerSubmissionResponse,
     HealthResponse,
     SessionResponse,
-    SessionStatus,
     SpeechSynthesisRequest,
     StartSessionResponse,
     TranscriptionResponse,
 )
-from app.services.interview import build_questions
+from app.services.providers import ProviderError, create_provider
 from app.services.session import LifecycleError, start, submit_answer
 from app.services.speech import (
     SpeechConfigurationError,
@@ -50,7 +49,12 @@ def _session_response(record: SessionRecord) -> SessionResponse:
         difficulty=record.request.difficulty,
         question_count=record.request.question_count,
         target_role_or_subject=record.request.target_role_or_subject,
+        provider_mode=record.provider_mode,
     )
+
+
+def _provider_error(exc: ProviderError) -> HTTPException:
+    return HTTPException(status_code=exc.response_status, detail=exc.detail())
 
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
@@ -128,7 +132,11 @@ async def transcribe_recorded_answer(file: UploadFile = File(...)) -> Transcript
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED, tags=["sessions"])
 def create_session(payload: CreateSessionRequest) -> SessionResponse:
-    record = store.create(payload, build_questions(payload))
+    try:
+        provider = create_provider()
+    except ProviderError as exc:
+        raise _provider_error(exc) from exc
+    record = store.create(payload, provider.mode)
     return _session_response(record)
 
 
@@ -141,12 +149,14 @@ def start_session(session_id: str) -> StartSessionResponse:
             detail={"code": "session_not_found", "message": "No session exists for the supplied session_id."},
         )
     try:
-        start(record)
+        current_question = start(record, create_provider(record.provider_mode))
     except LifecycleError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code, "message": exc.message}) from exc
+    except ProviderError as exc:
+        raise _provider_error(exc) from exc
     return StartSessionResponse(
         **_session_response(record).model_dump(),
-        current_question=record.questions[0],
+        current_question=current_question,
         question_number=1,
     )
 
@@ -160,9 +170,11 @@ def submit_session_answer(session_id: str, payload: AnswerSubmissionRequest) -> 
             detail={"code": "session_not_found", "message": "No session exists for the supplied session_id."},
         )
     try:
-        answer, next_question = submit_answer(record, payload)
+        answer, next_question = submit_answer(record, payload, create_provider(record.provider_mode))
     except LifecycleError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code, "message": exc.message}) from exc
+    except ProviderError as exc:
+        raise _provider_error(exc) from exc
     return AnswerSubmissionResponse(
         session_id=record.session_id,
         question_id=answer.question_id,
@@ -170,5 +182,6 @@ def submit_session_answer(session_id: str, payload: AnswerSubmissionRequest) -> 
         status="accepted",
         session_status=record.status,
         evaluation=answer.evaluation,
+        difficulty_adjustment=answer.difficulty_adjustment,
         next_question=next_question,
     )

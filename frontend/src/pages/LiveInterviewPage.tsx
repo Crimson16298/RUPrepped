@@ -15,11 +15,12 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell, Stepper } from "../components/AppShell";
-import { PresageMeasurements, type PresageMeasurementSnapshot } from "../components/PresageMeasurements";
+import { PresageMeasurements } from "../components/PresageMeasurements";
 import { Badge, Button, Card } from "../components/ui";
 import { useSession } from "../context/SessionContext";
 import { useAudioPlayback } from "../hooks/useAudioPlayback";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
+import { usePresageCompanion } from "../hooks/usePresageCompanion";
 import { fetchQuestionAudio, isVoiceRequestAbort, transcribeRecording, VoiceRequestError } from "../services/voiceClient";
 
 function elapsed(startedAt: string) {
@@ -62,11 +63,10 @@ export function LiveInterviewPage() {
   const done = !current;
   const isBackend = session?.mode === "backend";
   const latestCalibration = session?.calibration.at(-1);
-  // An approved renderer/Electron transport can replace this snapshot with
-  // consented summary-only measurements. Do not request camera access here.
-  const presageSnapshot: PresageMeasurementSnapshot = session?.setup.cameraEnabled
-    ? { availability: "unavailable" }
-    : { availability: "not-requested" };
+  const presageSnapshot = usePresageCompanion({
+    sessionId: session?.mode === "backend" && session.status === "active" && !done ? session.id : null,
+    consentGranted: session?.setup.cameraEnabled === true,
+  });
   const displayedDifficulty = isBackend ? current?.difficulty ?? session?.setup.difficulty : latestCalibration?.nextLevel ?? session?.setup.difficulty;
   const progress = session ? Math.round((index / session.questionCount) * 100) : 0;
   const providerLabel = !session

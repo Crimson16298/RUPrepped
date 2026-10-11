@@ -44,5 +44,5 @@ export interface PresageCompanionClient {
   stop(sessionId: string): Promise<Omit<PresageStatusEvent, "emittedAt">>;
   subscribe(sessionId: string, options: { onEvent(event: PresageCompanionEvent): void; signal?: AbortSignal }): Promise<void>;
 }
-export function consumeSseBlocks(buffer: string, onEvent(event: unknown): void): string;
+export function consumeSseBlocks(buffer: string, onEvent: (event: unknown) => void): string;
 export function createPresageCompanionClient(options: { baseUrl?: string; capabilityToken: string; fetchImpl?: typeof fetch }): PresageCompanionClient;

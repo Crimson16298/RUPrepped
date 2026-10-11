@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.d.ts",
       "import": "./src/index.mjs"
+    },
+    "./validation": {
+      "types": "./src/validation.d.ts",
+      "import": "./src/validation.mjs"
     }
   },
   "files": ["src"]

@@ -976,6 +976,16 @@ textarea {
   font-size: 11px;
   line-height: 1.5;
 }
+.presage-measurements__guidance {
+  color: #d5e3fa;
+  font-weight: 600;
+}
+.presage-measurements__quality-warning {
+  margin-top: 8px;
+  color: #f3d69b;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .presage-measurements__heading {
   display: flex;
   gap: 8px;

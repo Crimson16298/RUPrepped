@@ -22,7 +22,7 @@ if (!credential.usable || typeof token !== 'string' || token.length < 32) {
     availableCameras: () => SmartSpectraSDK.availableCameras(), decodeMetrics, cameraSelection: CameraSelection.default,
   });
   const origins = new Set((process.env.PRESAGE_COMPANION_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((value) => value.trim()).filter(Boolean));
-  const transport = createCompanionServer({ companion, capabilityToken: token, allowedOrigins: origins });
+  const transport = createCompanionServer({ companion, capabilityToken: token, allowedOrigins: origins, onRequest: (event) => console.log(JSON.stringify({ event: 'companionRequest', ...event })) });
   const port = Number.parseInt(process.env.PRESAGE_COMPANION_PORT ?? '8765', 10);
   transport.server.listen(port, '127.0.0.1', () => console.log(JSON.stringify({ event: 'companionListening', host: '127.0.0.1', port })));
   const shutdown = () => void transport.close().finally(() => process.exit(0));

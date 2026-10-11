@@ -151,8 +151,9 @@ compatibility re-export. The canonical browser package is
 `@ruprepped/presage-companion-client` at
 `packages/presage-companion-client/`; it accepts the configured loopback URL
 and capability token, refuses non-loopback URLs, and exposes `status()`,
-`start(sessionId)`, `subscribe(sessionId, { onEvent, signal })`, and
-`stop(sessionId)`. It has no Node-only imports and includes a TypeScript
+`start(sessionId, ownerToken, { signal })`, `heartbeat(sessionId, ownerToken)`,
+`subscribe(sessionId, { onEvent, signal })`, and `stop(sessionId, ownerToken)`.
+It has no Node-only imports and includes a TypeScript
 declaration, so Person 4 should add it as a local frontend dependency instead
 of importing from `experiments/` across Vite's filesystem boundary:
 
@@ -174,26 +175,34 @@ credential—not secret storage and never the Presage API key. Do not put the
 token in URLs, logs, or committed files. The loopback binding, origin
 allowlist, and header check remain necessary additional controls.
 
-1. On explicit camera opt-in and once `session.id` exists, `POST
-   /v1/presage/start` with `{ "sessionId": session.id, "consent": true }`.
-2. Read `GET /v1/presage/status`, then fetch-stream `GET
+1. On explicit camera opt-in and once `session.id` exists, generate a strong
+   random owner token in memory, then `POST /v1/presage/start` with
+   `{ "sessionId": session.id, "consent": true, "ownerToken": ownerToken }`.
+2. Renew the owner's 15-second lease every 4 seconds with
+   `POST /v1/presage/heartbeat` and `{ "sessionId": session.id, "ownerToken": ownerToken }`.
+   The server allows a bounded 60-second grace for throttled background timers;
+   the browser also heartbeats when the tab becomes visible. SSE observers
+   cannot renew or keep the camera alive. The hard fallback is 75 seconds after
+   the last accepted heartbeat.
+3. Read `GET /v1/presage/status`, then fetch-stream `GET
    /v1/presage/events?sessionId=<encoded session.id>`.
-3. For `type: "measurement"`, pass `metrics` directly to
+4. For `type: "measurement"`, pass `metrics` directly to
    `PresageMeasurements` as `measurements`, set
    `availability="available"`, and set `source="presage-smartspectra"`.
    Each metric already has `metric`, `value`, ISO `measuredAt`, confidence,
    and stable fields. Pulse unit is `bpm`; breathing is `breaths/min`; HRV
    RMSSD has no unit because the SDK declaration provides none.
-4. Map `awaiting_consent` to `not-requested`; `starting`/`warming_up` to
+5. Map `awaiting_consent` to `not-requested`; `starting`/`warming_up` to
    `warming-up`; `quality_insufficient`, `unavailable`, `stopped`, and `error`
    to `unavailable`. The current Node SDK cannot distinguish OS permission
    denial from its generic input-unavailable signal, so the current integration
    must render that state as `unavailable` unless a separately verified
    platform-permission signal is available.
-5. On consent revocation, interview completion, session replacement, component
+6. On consent revocation, interview completion, session replacement, component
    unmount, tab close, or stream failure: close the fetch reader, clear local
-   readings, and `POST /v1/presage/stop` with the same session ID. Cross-session
-   calls are rejected; never reuse a previous session's readings.
+   readings, and `POST /v1/presage/stop` with the same session ID and owner
+   token. Cross-session or non-owner calls are rejected; never reuse a previous
+   session's readings. The 75-second owner lease is the unload-failure fallback.
 
 This transport never sends video, hints, raw frames, API keys, or transcripts.
 It does not persist readings and does not affect Gemini feedback, shadow
@@ -230,20 +239,22 @@ renderer bridge is implemented; it is not needed for this transport.
 
 The service binds only to `http://127.0.0.1:8765`. Every route requires both
 an allowed `Origin` and an exact `X-Presage-Capability` value. The browser
-client accepts only `http://127.0.0.1` or `http://localhost` base URLs.
+client accepts only `http://127.0.0.1` or `http://localhost` base URLs. Its
+browser API is `start(sessionId, ownerToken, { signal })`,
+`heartbeat(sessionId, ownerToken)`, and `stop(sessionId, ownerToken)`.
 
 ### Requests and responses
 
-`POST /v1/presage/start` body (both fields required):
+`POST /v1/presage/start` body (all fields required):
 
 ```json
-{"sessionId":"ses_example","consent":true}
+{"sessionId":"ses_example","consent":true,"ownerToken":"<ephemeral random token>"}
 ```
 
 An accepted start returns HTTP 200. It returns the current local companion
 status, which can be `starting` or `warming_up` depending on synchronous SDK
-events. A repeated start for the same active session additionally has
-`"duplicate":true`. A different active session, unavailable camera, or SDK
+events. A repeated start for the same active session and owner token additionally has
+`"duplicate":true`. A different owner cannot take over. A different active session, unavailable camera, or SDK
 startup failure returns HTTP 409 with `accepted:false` and a status; this does
 not mean a measurement exists.
 
@@ -259,13 +270,19 @@ This endpoint deliberately has no `emittedAt` timestamp.
 {"schemaVersion":"1.0.0","type":"status","sessionId":"ses_example","status":"warming_up"}
 ```
 
+`POST /v1/presage/heartbeat` renews the interview owner's 15-second lease plus
+a 60-second bounded grace for delayed browser timers. SSE observers cannot renew
+it. The browser creates a random owner token
+per active interview, keeps it in memory, and sends it only in the authenticated
+JSON body, never in a URL.
+
 `POST /v1/presage/stop` body:
 
 ```json
-{"sessionId":"ses_example"}
+{"sessionId":"ses_example","ownerToken":"<same ephemeral owner token>"}
 ```
 
-It accepts only the currently active session, revokes local consent, calls the
+It accepts only the currently active owner session, revokes local consent, calls the
 SDK's `stopAsync()` and `destroy()` best-effort, clears the association, and
 returns HTTP 200. Because the session has been cleared, the successful JSON
 response contains no `sessionId` field:
@@ -356,7 +373,10 @@ const client = createPresageCompanionClient({
   capabilityToken: localCapabilityToken,
 });
 const controller = new AbortController();
-await client.start(session.id); // only after the explicit camera opt-in
+const ownerToken = [...crypto.getRandomValues(new Uint8Array(32))]
+  .map((value) => value.toString(16).padStart(2, "0")).join("");
+await client.start(session.id, ownerToken, { signal: controller.signal }); // after explicit opt-in
+const heartbeat = window.setInterval(() => void client.heartbeat(session.id, ownerToken), 4_000);
 void client.subscribe(session.id, {
   signal: controller.signal,
   onEvent(event) {
@@ -374,8 +394,9 @@ void client.subscribe(session.id, {
 });
 // On consent withdrawal, interview end, replacement, unmount, or stream error:
 controller.abort();
+window.clearInterval(heartbeat);
 setMeasurements([]);
-await client.stop(session.id);
+await client.stop(session.id, ownerToken);
 ```
 
 Do not render `permission-denied` from this Node transport unless a separate,

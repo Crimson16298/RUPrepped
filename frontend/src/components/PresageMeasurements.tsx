@@ -1,4 +1,5 @@
 import { CameraOff, CircleAlert, LoaderCircle, ShieldCheck } from "lucide-react";
+import { describeValidationCode } from "@ruprepped/presage-companion-client/validation";
 
 export type PresageMeasurementAvailability =
   | "not-requested"
@@ -32,6 +33,9 @@ export interface PresageMeasurementSnapshot {
   availability: PresageMeasurementAvailability;
   measurements?: readonly PresageMeasurement[];
   source?: PresageMeasurementSource;
+  validationCode?: number;
+  connectionState?: "connecting" | "connected" | "reconnecting" | "disconnected";
+  qualityWarning?: { status: string; validationCode?: number };
 }
 
 export interface PresageMeasurementsProps extends PresageMeasurementSnapshot {
@@ -85,6 +89,9 @@ export function PresageMeasurements({
   availability,
   measurements = [],
   source,
+  validationCode,
+  connectionState,
+  qualityWarning,
   staleAfterMs = 30_000,
   className,
 }: PresageMeasurementsProps) {
@@ -96,13 +103,18 @@ export function PresageMeasurements({
 
   if (availability !== "available") {
     const copy = statusCopy[availability];
+    const validation = typeof validationCode === "number" ? describeValidationCode(validationCode) : null;
+    const hasKnownValidation = validation !== null && validation.name !== "unknownValidationCode";
     const Icon = availability === "warming-up" ? LoaderCircle : availability === "permission-denied" ? CircleAlert : CameraOff;
     return (
       <section className={`presage-measurements ${stateClass} ${className ?? ""}`.trim()} aria-label="Camera measurement status">
         <Icon aria-hidden="true" size={17} className={availability === "warming-up" ? "presage-measurements__spinner" : undefined} />
         <div>
-          <strong>{copy.title}</strong>
-          <p>{copy.detail}</p>
+          <strong>{hasKnownValidation && availability !== "warming-up" ? "Camera positioning needs adjustment" : copy.title}</strong>
+          <p>{hasKnownValidation ? validation.message : copy.detail}</p>
+          {hasKnownValidation && <p className="presage-measurements__guidance">{validation.action}</p>}
+          {connectionState === "connected" && <small role="status">Authenticated camera event stream connected.</small>}
+          {connectionState === "reconnecting" && <small role="status">Camera connection interrupted; reconnecting.</small>}
         </div>
       </section>
     );
@@ -143,6 +155,15 @@ export function PresageMeasurements({
         })}
       </dl>
       {source === "presage-smartspectra" && <small className="presage-measurements__source">Source: Presage SmartSpectra</small>}
+      {qualityWarning && <p className="presage-measurements__quality-warning" role="status">
+        {typeof qualityWarning.validationCode === "number"
+          ? `${describeValidationCode(qualityWarning.validationCode).message} ${describeValidationCode(qualityWarning.validationCode).action}`
+          : qualityWarning.status === "measurement_rejected"
+            ? "The latest camera sample did not meet the existing quality checks. The last valid reading remains visible until it expires."
+            : "Camera quality is temporarily insufficient. The last valid reading remains visible until it expires."}
+      </p>}
+      {connectionState === "connected" && <small role="status">Authenticated camera event stream connected.</small>}
+      {connectionState === "reconnecting" && <small role="status">Camera connection interrupted; reconnecting.</small>}
     </section>
   );
 }

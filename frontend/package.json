@@ -4,6 +4,7 @@
   "description": "",
   "scripts": {
     "dev": "vite",
+    "test:presage": "node --test test/*.test.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

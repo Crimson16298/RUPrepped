@@ -1,0 +1,17 @@
+{
+  "name": "@ruprepped/telemetry-db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js",
+    "check:connection": "tsc -p tsconfig.json && node dist/src/check-connection.js",
+    "inspect:tls": "tsc -p tsconfig.json && node dist/src/inspect-tls.js",
+    "verify:telemetry": "tsc -p tsconfig.json && node dist/src/verify-telemetry.js",
+    "migrate": "tsc -p tsconfig.json && node dist/src/migrate.js",
+    "smoke": "tsc -p tsconfig.json && node dist/src/smoke.js"
+  },
+  "dependencies": { "pg": "^8.16.3" },
+  "devDependencies": { "@types/node": "^24.0.0", "@types/pg": "^8.15.5", "typescript": "^5.9.3" }
+}

@@ -662,29 +662,22 @@ textarea {
   line-height: 1.6;
   color: #91a3c2;
 }
-.switch {
-  display: block;
-  margin: 8px 0;
-  width: 35px;
-  height: 20px;
-  border: 0;
-  border-radius: 999px;
-  background: #344865;
-  padding: 2px;
+.camera-consent-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 8px;
+  color: #d5e3fa;
+  font-size: 11px;
+  line-height: 1.45;
+  cursor: pointer;
 }
-.switch i {
-  display: block;
-  width: 16px;
-  height: 16px;
-  background: #cad9f2;
-  border-radius: 50%;
-  transition: 0.2s;
-}
-.switch.checked {
-  background: #357ff7;
-}
-.switch.checked i {
-  transform: translateX(15px);
+.camera-consent-choice input {
+  width: 15px;
+  height: 15px;
+  margin: 1px 0 0;
+  accent-color: #4d8fff;
+  flex: none;
 }
 .start-button {
   width: 100%;

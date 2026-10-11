@@ -145,3 +145,8 @@ class SpeechSynthesisRequest(BaseModel):
 
 class TranscriptionResponse(BaseModel):
     transcript: str
+
+
+class ResumeExtractionResponse(BaseModel):
+    filename: str
+    resume_text: Annotated[str, Field(min_length=1, max_length=20_000)]

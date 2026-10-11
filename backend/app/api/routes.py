@@ -7,11 +7,13 @@ from app.schemas import (
     AnswerSubmissionRequest,
     AnswerSubmissionResponse,
     HealthResponse,
+    ResumeExtractionResponse,
     SessionResponse,
     SpeechSynthesisRequest,
     StartSessionResponse,
     TranscriptionResponse,
 )
+from app.services.resume import MAX_RESUME_UPLOAD_BYTES, ResumeExtractionError, extract_resume_text
 from app.services.providers import ProviderError, create_provider
 from app.services.session import LifecycleError, start, submit_answer
 from app.services.speech import (
@@ -60,6 +62,27 @@ def _provider_error(exc: ProviderError) -> HTTPException:
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 def health() -> HealthResponse:
     return HealthResponse(status="ok", service="ruprepped-mock-backend")
+
+
+@router.post("/resumes/extract", response_model=ResumeExtractionResponse, tags=["resumes"])
+async def extract_resume(file: UploadFile = File(...)) -> ResumeExtractionResponse:
+    """Extract PDF/TXT resume content in memory for the existing session API."""
+    try:
+        data = await file.read(MAX_RESUME_UPLOAD_BYTES + 1)
+    finally:
+        await file.close()
+
+    if len(data) > MAX_RESUME_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={"code": "resume_too_large", "message": "Resume uploads must be 5 MiB or smaller."},
+        )
+    try:
+        resume_text = extract_resume_text(data, filename=file.filename, content_type=file.content_type)
+    except ResumeExtractionError as exc:
+        response_status = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE if exc.code == "unsupported_resume_type" else status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(status_code=response_status, detail={"code": exc.code, "message": exc.message}) from exc
+    return ResumeExtractionResponse(filename=file.filename or "resume", resume_text=resume_text)
 
 
 @router.post("/voice/synthesize", response_class=Response, tags=["voice"])

@@ -616,6 +616,9 @@ textarea {
   color: #8395b5 !important;
   margin: 0 !important;
 }
+.resume-error {
+  margin-top: -8px;
+}
 .setup-side {
   display: grid;
   gap: 14px;

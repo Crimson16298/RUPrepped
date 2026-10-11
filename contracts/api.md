@@ -111,6 +111,48 @@ and invalid types/values return `422`; unknown resource paths return `404`.
 
 ## Implemented endpoints
 
+### `POST /api/resumes/extract`
+
+Extracts text from a candidate-selected resume before the existing session is
+created. This is the only resume-upload endpoint. It is independent from the
+interview lifecycle and does not create a session or call Gemini.
+
+Send `multipart/form-data` with one `file` field. Supported input is a
+text-based PDF (detected from PDF content) or UTF-8 TXT (including a UTF-8 BOM).
+The backend validates bytes as well as filename/content type, processes the
+upload in memory only, reads at most 5 MiB plus one byte, and never persists or
+logs the file contents. Uploads must be at most **5 MiB**. Returned
+`resume_text` is conservatively normalized and capped at **20,000 characters**
+so it can be supplied unchanged to `POST /api/sessions`.
+
+```text
+Content-Type: multipart/form-data
+file: resume.pdf (application/pdf)
+```
+
+`200 OK`:
+
+```json
+{
+  "filename": "resume.pdf",
+  "resume_text": "EDUCATION\nRutgers University\n\nPROJECTS\nRUPrepped — FastAPI interview platform"
+}
+```
+
+Errors use the shared envelope. `415 unsupported_resume_type` means the input
+is not a supported PDF/TXT document; `413 resume_too_large` means it exceeds 5
+MiB; `422 resume_empty`, `422 invalid_resume_text_encoding`, or `422
+resume_unextractable` indicate an empty, non-UTF-8, corrupt, encrypted,
+scanned-only, or otherwise text-unextractable document. Clients should show the
+message and leave the user able to choose a different file.
+
+**Frontend handoff:** (1) user selects a PDF/TXT file; (2) React uploads it to
+`/api/resumes/extract`; (3) FastAPI returns `resume_text`; (4) React includes
+that exact string as optional `resume_text` in `POST /api/sessions`; (5) the
+session starts normally; (6) Gemini uses only stated resume skills, projects,
+tools, and work experience to personalize questions. Resume and job-description
+content is treated as untrusted reference data, not executable instructions.
+
 ### `GET /api/health`
 
 `200 OK`:

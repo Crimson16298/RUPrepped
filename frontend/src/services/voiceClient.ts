@@ -5,28 +5,36 @@ export class VoiceRequestError extends Error {
   }
 }
 
-type ApiErrorBody = { error?: { code?: string; message?: string } }
+type ApiErrorDetail = { code?: string; message?: string }
+type ApiErrorBody = { error?: ApiErrorDetail; detail?: ApiErrorDetail }
 
 async function errorFrom(response: Response): Promise<VoiceRequestError> {
   const body = await response.json().catch(() => null) as ApiErrorBody | null
+  const detail = body?.error ?? body?.detail
   return new VoiceRequestError(
-    body?.error?.message ?? `The voice service returned HTTP ${response.status}.`,
+    detail?.message ?? `The voice service returned HTTP ${response.status}.`,
     response.status,
-    body?.error?.code,
+    detail?.code,
   )
 }
 
-export async function fetchQuestionAudio(baseUrl: string, text: string): Promise<Blob> {
+export function isVoiceRequestAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+export async function fetchQuestionAudio(baseUrl: string, text: string, signal?: AbortSignal): Promise<Blob> {
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/voice/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+      signal,
     })
     if (!response.ok) throw await errorFrom(response)
     return response.blob()
   } catch (error) {
     if (error instanceof VoiceRequestError) throw error
+    if (isVoiceRequestAbort(error)) throw error
     throw new VoiceRequestError('Unable to reach the voice service. Check that FastAPI is running and try again.')
   }
 }
@@ -38,13 +46,14 @@ function extensionFor(mimeType: string): string {
   return 'webm'
 }
 
-export async function transcribeRecording(baseUrl: string, recording: Blob): Promise<string> {
+export async function transcribeRecording(baseUrl: string, recording: Blob, signal?: AbortSignal): Promise<string> {
   const body = new FormData()
   body.append('file', recording, `answer.${extensionFor(recording.type)}`)
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/voice/transcribe`, {
       method: 'POST',
       body,
+      signal,
     })
     if (!response.ok) throw await errorFrom(response)
     const payload = await response.json() as { transcript?: unknown }
@@ -54,6 +63,7 @@ export async function transcribeRecording(baseUrl: string, recording: Blob): Pro
     return payload.transcript.trim()
   } catch (error) {
     if (error instanceof VoiceRequestError) throw error
+    if (isVoiceRequestAbort(error)) throw error
     throw new VoiceRequestError('Unable to transcribe the recording. Check the voice service and try again.')
   }
 }

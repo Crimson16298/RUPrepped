@@ -5,10 +5,12 @@ export type AudioPlaybackStatus = 'idle' | 'loading' | 'playing' | 'error'
 export function useAudioPlayback() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const objectUrlRef = useRef<string | null>(null)
+  const playbackVersionRef = useRef(0)
   const [status, setStatus] = useState<AudioPlaybackStatus>('idle')
   const [error, setError] = useState<string | null>(null)
 
   const stop = useCallback(() => {
+    playbackVersionRef.current += 1
     audioRef.current?.pause()
     audioRef.current = null
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
@@ -17,7 +19,12 @@ export function useAudioPlayback() {
   }, [])
 
   const play = useCallback(async (audioBlob: Blob) => {
-    stop()
+    const version = playbackVersionRef.current + 1
+    playbackVersionRef.current = version
+    audioRef.current?.pause()
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    audioRef.current = null
+    objectUrlRef.current = null
     setError(null)
     setStatus('loading')
     const objectUrl = URL.createObjectURL(audioBlob)
@@ -25,19 +32,20 @@ export function useAudioPlayback() {
     const audio = new Audio(objectUrl)
     audioRef.current = audio
     audio.onended = () => {
-      if (audioRef.current === audio) setStatus('idle')
+      if (playbackVersionRef.current === version && audioRef.current === audio) setStatus('idle')
     }
     audio.onerror = () => {
-      if (audioRef.current === audio) {
+      if (playbackVersionRef.current === version && audioRef.current === audio) {
         setError('The question audio could not be played. Try replaying it.')
         setStatus('error')
       }
     }
     try {
       await audio.play()
-      if (audioRef.current === audio) setStatus('playing')
+      if (playbackVersionRef.current === version && audioRef.current === audio) setStatus('playing')
+      else audio.pause()
     } catch (cause) {
-      if (audioRef.current === audio) {
+      if (playbackVersionRef.current === version && audioRef.current === audio) {
         const message = cause instanceof DOMException && cause.name === 'NotAllowedError'
           ? 'Your browser blocked playback. Use Replay question to start the audio.'
           : 'The question audio could not be played. Try replaying it.'

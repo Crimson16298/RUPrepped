@@ -20,7 +20,7 @@ import { Badge, Button, Card } from "../components/ui";
 import { useSession } from "../context/SessionContext";
 import { useAudioPlayback } from "../hooks/useAudioPlayback";
 import { useMicrophoneRecorder } from "../hooks/useMicrophoneRecorder";
-import { fetchQuestionAudio, transcribeRecording, VoiceRequestError } from "../services/voiceClient";
+import { fetchQuestionAudio, isVoiceRequestAbort, transcribeRecording, VoiceRequestError } from "../services/voiceClient";
 
 function elapsed(startedAt: string) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
@@ -35,8 +35,15 @@ export function LiveInterviewPage() {
   const [paused, setPaused] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(false);
   const spokenQuestionRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
+  const audioRequestVersionRef = useRef(0);
+  const audioRequestControllerRef = useRef<AbortController | null>(null);
+  const transcriptionVersionRef = useRef(0);
+  const transcriptionControllerRef = useRef<AbortController | null>(null);
+  const recordingQuestionIdRef = useRef<string | null>(null);
+  const activeQuestionIdRef = useRef<string | null>(null);
   const { status: playbackStatus, error: playbackError, play, stop: stopPlayback } = useAudioPlayback();
   const { status: recorderStatus, error: recorderError, start: startMicrophone, stop: stopMicrophone } = useMicrophoneRecorder();
   const voiceBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -51,6 +58,7 @@ export function LiveInterviewPage() {
 
   const index = session?.answers.length ?? 0;
   const current = session?.questions[index];
+  activeQuestionIdRef.current = current?.id ?? null;
   const done = !current;
   const isBackend = session?.mode === "backend";
   const latestCalibration = session?.calibration.at(-1);
@@ -65,6 +73,8 @@ export function LiveInterviewPage() {
     ? "Saving answer…"
     : transcribing
       ? "Transcribing answer…"
+      : audioLoading
+        ? "Loading question…"
       : playbackStatus === "playing"
         ? "Question playing"
         : recorderStatus === "recording" ? "Recording answer" : "Ready";
@@ -72,8 +82,23 @@ export function LiveInterviewPage() {
     ? "Slightly harder next"
     : latestCalibration?.decision === "decrease" ? "Slightly easier next" : "Holding steady";
 
+  const cancelQuestionAudio = useCallback(() => {
+    audioRequestVersionRef.current += 1;
+    audioRequestControllerRef.current?.abort();
+    audioRequestControllerRef.current = null;
+    stopPlayback();
+    setAudioLoading(false);
+  }, [stopPlayback]);
+
+  const cancelTranscription = useCallback(() => {
+    transcriptionVersionRef.current += 1;
+    transcriptionControllerRef.current?.abort();
+    transcriptionControllerRef.current = null;
+    setTranscribing(false);
+  }, []);
+
   const playCurrentQuestion = useCallback(async () => {
-    if (!isBackend || !current) return;
+    if (!isBackend || !current || paused) return;
     if (recorderStatus === "recording") {
       setVoiceError("Stop recording before playing the question again.");
       return;
@@ -82,24 +107,57 @@ export function LiveInterviewPage() {
       setVoiceError("Wait for transcription to finish before replaying the question.");
       return;
     }
+
+    cancelQuestionAudio();
+    const version = audioRequestVersionRef.current + 1;
+    audioRequestVersionRef.current = version;
+    const controller = new AbortController();
+    audioRequestControllerRef.current = controller;
     setVoiceError(null);
+    setAudioLoading(true);
     try {
-      const audio = await fetchQuestionAudio(voiceBaseUrl, current.prompt);
+      const audio = await fetchQuestionAudio(voiceBaseUrl, current.prompt, controller.signal);
+      if (audioRequestVersionRef.current !== version || activeQuestionIdRef.current !== current.id || paused) return;
       await play(audio);
     } catch (cause) {
+      if (audioRequestVersionRef.current !== version || isVoiceRequestAbort(cause)) return;
       if (cause instanceof VoiceRequestError) setVoiceError(cause.message);
       else if (!playbackError) setVoiceError("The question audio could not be played. Try replaying it.");
+    } finally {
+      if (audioRequestVersionRef.current === version) {
+        audioRequestControllerRef.current = null;
+        setAudioLoading(false);
+      }
     }
-  }, [current, isBackend, play, playbackError, recorderStatus, transcribing, voiceBaseUrl]);
+  }, [cancelQuestionAudio, current, isBackend, paused, play, playbackError, recorderStatus, transcribing, voiceBaseUrl]);
 
   useEffect(() => {
-    if (!isBackend || !current || spokenQuestionRef.current === current.id) return;
+    if (!isBackend || !current || paused) {
+      cancelQuestionAudio();
+      return;
+    }
+    if (spokenQuestionRef.current === current.id) return;
     spokenQuestionRef.current = current.id;
     void playCurrentQuestion();
-  }, [current, isBackend, playCurrentQuestion]);
+  }, [cancelQuestionAudio, current, isBackend, paused, playCurrentQuestion]);
+
+  useEffect(() => {
+    cancelTranscription();
+  }, [cancelTranscription, current?.id]);
+
+  useEffect(() => () => {
+    audioRequestVersionRef.current += 1;
+    audioRequestControllerRef.current?.abort();
+    transcriptionVersionRef.current += 1;
+    transcriptionControllerRef.current?.abort();
+    spokenQuestionRef.current = null;
+    stopPlayback();
+  }, [stopPlayback]);
 
   async function startRecording() {
-    if (playbackStatus === "loading" || playbackStatus === "playing") stopPlayback();
+    if (!current) return;
+    cancelQuestionAudio();
+    recordingQuestionIdRef.current = current.id;
     setVoiceError(null);
     try {
       await startMicrophone();
@@ -109,15 +167,29 @@ export function LiveInterviewPage() {
   }
 
   async function stopRecordingAndTranscribe() {
+    const recordedQuestionId = recordingQuestionIdRef.current;
+    let transcriptionVersion: number | null = null;
     setVoiceError(null);
     try {
       const recording = await stopMicrophone();
+      recordingQuestionIdRef.current = null;
+      if (!recordedQuestionId) throw new Error("The recording is not associated with an active question. Please record it again.");
+      transcriptionVersion = transcriptionVersionRef.current + 1;
+      transcriptionVersionRef.current = transcriptionVersion;
+      const controller = new AbortController();
+      transcriptionControllerRef.current = controller;
       setTranscribing(true);
-      setText(await transcribeRecording(voiceBaseUrl, recording));
+      const transcript = await transcribeRecording(voiceBaseUrl, recording, controller.signal);
+      if (transcriptionVersionRef.current !== transcriptionVersion || activeQuestionIdRef.current !== recordedQuestionId) {
+        setVoiceError("The question changed while transcription was in progress. Please record your answer again.");
+        return;
+      }
+      setText(transcript);
     } catch (cause) {
-      setVoiceError(cause instanceof Error ? cause.message : "Unable to transcribe the recording.");
+      if (!isVoiceRequestAbort(cause)) setVoiceError(cause instanceof Error ? cause.message : "Unable to transcribe the recording.");
     } finally {
-      setTranscribing(false);
+      recordingQuestionIdRef.current = null;
+      if (transcriptionVersion === null || transcriptionVersionRef.current === transcriptionVersion) setTranscribing(false);
     }
   }
 
@@ -125,6 +197,7 @@ export function LiveInterviewPage() {
     if (!text.trim() || done || submittingRef.current || recorderStatus === "recording" || transcribing) return;
     submittingRef.current = true;
     try {
+      cancelQuestionAudio();
       if (await answer(text)) setText("");
     } finally {
       submittingRef.current = false;
@@ -140,7 +213,7 @@ export function LiveInterviewPage() {
       setVoiceError("Stop and transcribe your recording before pausing the interview.");
       return;
     }
-    if (!paused) stopPlayback();
+    if (!paused) cancelQuestionAudio();
     setPaused((value) => !value);
   }
 
@@ -172,7 +245,7 @@ export function LiveInterviewPage() {
               {!current ? <div className="completion-message"><CheckCircle2 /><h2>Practice sequence complete.</h2><p>Review your available session feedback when you’re ready.</p></div> : <>
                 <Badge tone="violet">{current.category} · ~{current.estimatedMinutes} min</Badge>
                 <h1>{current.prompt}</h1>
-                {isBackend && <Button type="button" variant="secondary" className="voice-replay" onClick={() => void playCurrentQuestion()} disabled={paused || playbackStatus === "loading" || recorderStatus === "recording" || transcribing}><Volume2 size={16} /> {playbackStatus === "playing" ? "Playing question…" : "Replay question"}</Button>}
+                {isBackend && <Button type="button" variant="secondary" className="voice-replay" onClick={() => void playCurrentQuestion()} disabled={paused || audioLoading || playbackStatus === "loading" || recorderStatus === "recording" || transcribing}><Volume2 size={16} /> {audioLoading || playbackStatus === "playing" ? "Playing question…" : "Replay question"}</Button>}
                 <div className="answer-box">
                   <label htmlFor="answer">{isBackend ? "Your answer transcript" : "Your simulated text answer"}</label>
                   <textarea id="answer" value={text} onChange={(event) => setText(event.target.value)} placeholder={isBackend ? "Record an answer or type your transcript here." : "Type your answer here. This interface does not record audio or analyze your camera."} rows={6} disabled={paused || busy || recorderStatus === "recording" || transcribing} />
@@ -182,7 +255,7 @@ export function LiveInterviewPage() {
             </Card>
             <Card className="controls-card">
               <button type="button" onClick={togglePause} disabled={busy}><Pause size={17} /> {paused ? "Resume simulation" : "Pause simulation"}</button>
-              {isBackend ? recorderStatus === "recording" ? <button type="button" onClick={() => void stopRecordingAndTranscribe()} disabled={paused || transcribing}><Square size={16} /> Stop &amp; transcribe</button> : <button type="button" onClick={() => void startRecording()} disabled={paused || busy || transcribing || done || playbackStatus === "loading" || playbackStatus === "playing"}><Mic size={16} /> {recorderStatus === "requesting-permission" ? "Requesting microphone…" : "Record answer"}</button> : <span><MicOff size={16} /> Microphone available in backend mode</span>}
+              {isBackend ? recorderStatus === "recording" ? <button type="button" onClick={() => void stopRecordingAndTranscribe()} disabled={paused || transcribing}><Square size={16} /> Stop &amp; transcribe</button> : <button type="button" onClick={() => void startRecording()} disabled={paused || busy || transcribing || done || audioLoading || playbackStatus === "loading" || playbackStatus === "playing"}><Mic size={16} /> {recorderStatus === "requesting-permission" ? "Requesting microphone…" : "Record answer"}</button> : <span><MicOff size={16} /> Microphone available in backend mode</span>}
               {transcribing && <span><Mic size={16} /> Transcribing your answer…</span>}
               <button type="button" className="finish" onClick={() => void complete()} disabled={busy || recorderStatus === "recording" || transcribing || (isBackend && !done)}><FastForward size={17} /> Finish Interview</button>
             </Card>

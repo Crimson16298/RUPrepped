@@ -56,7 +56,7 @@ Sample request fragment:
 
 The existing frontend vocabulary cannot fully represent Person 3 actions. Map `increase` directly; map `support` to `decrease` only when the recommended difficulty is actually lower; map pacing-only `support` and `pause` to `maintain` until Person 4 adds an explicit pacing status.
 
-### Exact current FastAPI seam and Person 1 patch plan
+### Shadow-mode FastAPI seam and Person 1 patch plan
 
 In remote `origin/main` at `1d7673f`, `backend/app/services/session.py` has
 the required ordering inside `submit_answer()`:
@@ -68,23 +68,31 @@ the required ordering inside `submit_answer()`:
 3. `_question_from_provider(..., adjustment.next_difficulty)` generates the
    next question.
 
-Person 1 should replace step 2 with a bounded invocation of
-`packages/adaptive-calibration/dist/src/cli.js`, using the request contract
-above. Construct the request from the answer records already held by the
-session: current difficulty, recent evaluation history, timestamps, and prior
-calibration decisions. On exit `0` and `{ "ok": true }`, use the returned
-`recommendedDifficulty` as the only next-question difficulty. On a timeout,
-nonzero exit, malformed response, or `{ "ok": false }`, preserve the current
-difficulty and continue the interview; do not invoke the old policy as a
-second competing calibration system. Return a backend response that retains
-the existing frontend-compatible adjustment while the frontend contract is
-expanded.
+For the current milestone, Person 1 must keep step 2 unchanged: Python's
+`choose_next_difficulty(...)` remains the only applied next-question policy.
+After that decision is available, invoke
+`packages/adaptive-calibration/dist/src/cli.js` with the same answer history,
+timestamps, and current difficulty. Its result is comparison-only. On exit
+`0` and `{ "ok": true }`, build a transcript-free comparison record with the
+session, question, and answer identifiers; Python's selected difficulty; the
+Node recommendation; agreement; execution duration; schema version; and node
+status. On a two-second timeout, nonzero exit, malformed response, or
+`{ "ok": false }`, write a status-only comparison record and continue the
+interview normally. Never display a shadow recommendation as an applied
+frontend adjustment.
+
+`buildShadowComparison()` in
+`packages/adaptive-calibration/src/shadow-comparison.ts` implements the
+sanitized comparison shape. It always sets `authoritativeDifficulty` to the
+Python-selected value, so a Node recommendation cannot alter the interview.
 
 Required backend files for Person 1 review: `backend/app/services/session.py`
-(subprocess call and next-question difficulty), `backend/app/database/store.py`
-(previous-decision history and a separate UUID telemetry-session mapping), and
-`backend/app/schemas.py` (only if the team approves exposing richer pacing
-status). No raw camera frame, video, or credential belongs in this request.
+(non-blocking comparison subprocess after the Python decision),
+`backend/app/database/store.py` (answer/decision history in memory; a separate
+UUID telemetry-session mapping only when telemetry is approved), and
+`backend/app/schemas.py` only if the team approves exposing a shadow status.
+No raw camera frame, video, credential, or transcript belongs in a comparison
+record.
 
 Example result (illustrative only):
 
@@ -106,6 +114,23 @@ Example result (illustrative only):
 
 Telemetry persistence should record session consent, answer aggregate, decision evidence, and minimal consented metric summaries. It must not store raw video and should not expose physiology in replay without explicit authorization.
 
+## Proposed Presage active-session association
+
+Implemented locally in `experiments/presage-poc/src/session-measurement-adapter.mjs`:
+the local camera host can bind a real decoded SmartSpectra event to the active
+FastAPI `session_id` after explicit consent. It sends no frames or video. The
+adapter emits only samples with SDK validation code `0`, confidence at least
+70, and `stable: true`; it emits status-only outcomes for unavailable camera,
+denied/revoked consent, invalid readiness, and poor quality. Revocation stops
+all summaries immediately. The adapter does not persist anything and does not
+affect Gemini grading or the Python policy.
+
+This is implemented and offline-tested, but not wired into FastAPI, frontend,
+or Electron. Electron's repository files are currently placeholders, so the
+smallest viable live host remains the existing local Node POC/companion. Person
+4 must provide explicit consent/status controls, and Person 1 must approve a
+summary-only process boundary associated with the active `session_id`.
+
 ## Manual demo order
 
 1. Run `npm.cmd run diagnose` in the Presage POC with `SMARTSPECTRA_DIAGNOSTIC_CONSENT=yes`.
@@ -117,11 +142,11 @@ Backend/API field names, consent wording, retention, and the Node-to-FastAPI tra
 
 ## Teammate tasks and environment
 
-- Backend: invoke the Node boundary after evaluation/before next-question generation, provide the latest valid `0–100` Gemini history, preserve caller timestamps and prior decisions, replace rather than duplicate its current difficulty policy, and treat a calibration/telemetry failure as non-fatal. A separate UUID telemetry-session ID is required before telemetry writes; FastAPI's `ses_...` ID is not a database UUID.
+- Backend: keep Python difficulty policy authoritative; invoke the Node boundary only for comparison after the Python decision, provide the latest valid `0–100` Gemini history, preserve caller timestamps and prior decisions, and treat every Node/telemetry failure as non-fatal. A separate UUID telemetry-session ID is required before telemetry writes; FastAPI's `ses_...` ID is not a database UUID.
 - Frontend/Electron: obtain explicit camera consent before setting `SMARTSPECTRA_MEASUREMENT_CONSENT=yes`; render availability guidance, not diagnoses; send only consented summaries.
 - Database worker: use package-local `DATABASE_URL`, `TELEMETRY_DATABASE_ENV=development`, and `DATABASE_SSL=local` only for loopback development. Remote URLs require `DATABASE_SSL=require-verify`.
 - Privacy: never send raw frames, never use physiology for scoring or difficulty, and retain physiology only under approved consent/retention policy.
 
 Offline verification currently covers Presage normalization/consent/error behavior, deterministic calibration/cooldown/physiology guards, and telemetry parameterization/idempotency/TLS configuration. Local PostgreSQL migration and smoke verification were confirmed from regular Windows PowerShell; TimescaleDB is optional and absent.
 
-Current offline verification: Presage `check` plus 16 tests; adaptive calibration typecheck plus 19 tests; telemetry typecheck plus 14 tests; `git diff --check` passes. Live camera capture was previously verified separately and is not part of the offline suite.
+Current offline verification: Presage `check` plus 19 tests; adaptive calibration typecheck plus 22 tests; telemetry typecheck plus 14 tests; `git diff --check` passes. Live camera capture was previously verified separately and is not part of the offline suite. Credential rotation remains awaiting owner confirmation; do not run a live session until the old key is revoked and a replacement is installed locally.

@@ -43,6 +43,29 @@ The live diagnostic coalesces repeated `validationStatus` events into `session.v
 
 The harness requests Presage's documented breathing and cardio bundles. It records only the documented `breathing.rate`, `cardio.pulseRate`, and `cardio.hrv.rmssd` samples (when present), alongside the SDK event timestamp and the source sample timestamp. Breathing rate is reported in breaths/minute and pulse rate in bpm; this harness deliberately omits an RMSSD unit because the installed SDK declaration does not define one. Presage documents confidence as 0–100 and says breathing, pulse, and HRV need warm-up windows (30, 12, and 60 seconds respectively) before acting on values.
 
+## Proposed active-session bridge
+
+`src/session-measurement-adapter.mjs` is a reusable local-only bridge for a
+future interview host. It associates a real, normalized SDK event with the
+active interview's actual `sessionId`, but only after explicit consent. It
+emits a minimal summary only when `validationCode === 0` and at least one
+sample has confidence at least 70 and `stable: true`. It never emits raw
+frames, video, SDK hints, or a fabricated reading.
+
+The host calls `grantConsent()` only after a user opt-in, and calls
+`revokeConsent()` to immediately stop summaries. Missing camera input, denied
+consent, invalid SDK readiness, low quality, or SDK failure yield a status and
+must not interrupt the interview. The adapter does not persist data and must
+not be wired to telemetry until the team approves consent wording and
+retention.
+
+The current FastAPI process must not access the user's webcam. For the first
+integration demo, run the existing SmartSpectra POC or a local Node companion
+alongside the interview host, then send only consented summaries across a
+reviewed boundary. The repository's Electron files are placeholders; an
+Electron owner must implement the documented SmartSpectra main/preload/
+renderer integration before Electron can host capture.
+
 ## Electron follow-up
 
 For the eventual desktop integration, use the SDK's documented Electron entry points rather than this CLI: `@smartspectra/node-sdk/main`, `/preload`, and `/renderer`; call `bindSmartSpectraIpc(window)` in main and use the renderer SDK with its browser-owned media stream. Do not use this POC's camera logic as a production renderer implementation.

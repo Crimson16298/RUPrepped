@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js",
-    "example": "tsc -p tsconfig.json && node dist/src/examples.js"
+    "example": "tsc -p tsconfig.json && node dist/src/examples.js",
+    "calibrate:stdin": "tsc -p tsconfig.json && node dist/src/cli.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

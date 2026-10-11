@@ -14,8 +14,13 @@ class LifecycleError(Exception):
     message: str
 
 
-def _question_from_provider(record: SessionRecord, provider: InterviewProvider, difficulty: int) -> Question:
-    generated = provider.generate_question(record.request, record.questions, record.answers, difficulty)
+def _question_from_provider(
+    record: SessionRecord,
+    provider: InterviewProvider,
+    difficulty: int,
+    answers: list[AnswerRecord] | None = None,
+) -> Question:
+    generated = provider.generate_question(record.request, record.questions, record.answers if answers is None else answers, difficulty)
     existing = {question.question_id for question in record.questions}
     base_id = generated.question_id_hint or f"q_{record.session_id[-8:]}_{len(record.questions) + 1}"
     question_id = base_id
@@ -68,7 +73,10 @@ def submit_answer(record: SessionRecord, payload: AnswerSubmissionRequest, provi
         record.answers.append(answer)
         record.status = SessionStatus.COMPLETED
         return answer, None
-    next_question = _question_from_provider(record, provider, adjustment.next_difficulty)
+    # Generate against prospective history. This makes the just-evaluated answer
+    # available to the next turn without committing session state until generation
+    # succeeds.
+    next_question = _question_from_provider(record, provider, adjustment.next_difficulty, [*record.answers, answer])
     record.answers.append(answer)
     record.questions.append(next_question)
     record.current_question_index += 1

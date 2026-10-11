@@ -1,9 +1,11 @@
+import json
+
 import pytest
 
 from app.database.store import AnswerRecord, InMemorySessionStore, SessionRecord
-from app.schemas import AnswerEvaluation, AnswerSubmissionRequest, CreateSessionRequest, ProviderMode, Question, RubricScores, SessionStatus, SkillCategory
+from app.schemas import AnswerEvaluation, AnswerSubmissionRequest, CreateSessionRequest, DifficultyAdjustment, ProviderMode, Question, RubricScores, SessionStatus, SkillCategory
 from app.services.interview import GeneratedQuestion
-from app.services.prompts import build_evaluation_prompt, build_question_prompt
+from app.services.prompts import _history, build_evaluation_prompt, build_question_prompt
 from app.services.providers import ProviderUnavailableError
 from app.services.session import LifecycleError, start, submit_answer
 
@@ -154,6 +156,56 @@ def test_question_id_validation_and_duplicate_answer_protection_are_preserved() 
         submit_answer(record, AnswerSubmissionRequest(question_id=first_question.question_id, transcript="duplicate answer"), provider)
 
 
+def test_history_labels_speakers_and_preserves_chronological_turn_order() -> None:
+    first = Question(
+        question_id="q_1", question_text="What would you like to discuss?",
+        skill_category=SkillCategory.COMMUNICATION, difficulty=2, interview_type="behavioral",
+    )
+    second = Question(
+        question_id="q_2", question_text="I hear you about the dishes.",
+        skill_category=SkillCategory.COMMUNICATION, difficulty=2, interview_type="behavioral",
+    )
+    first_answer = AnswerRecord(
+        answer_id="ans_01", question_id="q_1",
+        transcript="The dishes are often left in the sink, and it bothers me.",
+        audio_reference=None, evaluation=_evaluation(),
+        difficulty_adjustment=DifficultyAdjustment(
+            previous_difficulty=2, next_difficulty=2, decision="maintain", rationale="Continue at this level.",
+        ),
+    )
+
+    history = json.loads(_history([first, second], [first_answer]))
+
+    assert [turn["turn"] for turn in history] == [1, 2]
+    assert [turn["AI character (simulator) said"] for turn in history] == [
+        "What would you like to discuss?", "I hear you about the dishes.",
+    ]
+    assert history[0]["User said"] == "The dishes are often left in the sink, and it bothers me."
+    assert "User said" not in history[1]
+
+
+def test_generation_prompt_forbids_speaker_misattribution_and_invented_events() -> None:
+    question = Question(
+        question_id="q_1", question_text="I usually clean up after myself. What do you mean?",
+        skill_category=SkillCategory.COMMUNICATION, difficulty=2, interview_type="behavioral",
+    )
+    answer = AnswerRecord(
+        answer_id="ans_01", question_id="q_1",
+        transcript="There are stains on the counter and dishes in the sink.",
+        audio_reference=None, evaluation=_evaluation(),
+        difficulty_adjustment=DifficultyAdjustment(
+            previous_difficulty=2, next_difficulty=2, decision="maintain", rationale="Continue at this level.",
+        ),
+    )
+    prompt = build_question_prompt(_request(), [question], [answer], 2)
+
+    assert '"AI character (simulator) said": "I usually clean up after myself. What do you mean?"' in prompt
+    assert '"User said": "There are stains on the counter and dishes in the sink."' in prompt
+    assert "Use the speaker labels in the history as authoritative" in prompt
+    assert "Never attribute one participant's words, actions, apologies, profanity, claims, or intent to the other" in prompt
+    assert "do not invent prior statements or actions" in prompt
+
+
 @pytest.mark.parametrize(
     ("objective", "description", "required_guidance"),
     [
@@ -213,3 +265,41 @@ def test_evaluation_prompt_receives_objective_and_further_description() -> None:
     assert "a short, appropriate conversational response is not inherently poor" in prompt
     assert "personal disclosure, identity, or vulnerability" in prompt
     assert "technical_correctness to null" in prompt
+
+
+def test_evaluation_prompt_uses_attributed_evidence_and_scores_only_latest_answer() -> None:
+    objective = "Practice asking my roommate to share kitchen cleanup fairly."
+    description = "Stay respectful while being specific about the problem."
+    first_question = Question(
+        question_id="q_1", question_text="I clean up after myself most of the time. What specifically?",
+        skill_category=SkillCategory.COMMUNICATION, difficulty=2, interview_type="behavioral",
+    )
+    second_question = Question(
+        question_id="q_2", question_text="I did leave dishes in the sink yesterday. What would help?",
+        skill_category=SkillCategory.COMMUNICATION, difficulty=2, interview_type="behavioral",
+    )
+    earlier_user_answer = AnswerRecord(
+        answer_id="ans_01", question_id="q_1",
+        transcript="The counter has stains and dishes are left in the sink.",
+        audio_reference=None, evaluation=_evaluation(),
+        difficulty_adjustment=DifficultyAdjustment(
+            previous_difficulty=2, next_difficulty=2, decision="maintain", rationale="Continue at this level.",
+        ),
+    )
+    latest_user_answer = "Thanks for acknowledging yesterday. Can we agree to wash dishes after cooking?"
+    prompt = build_evaluation_prompt(
+        CreateSessionRequest(interview_type="behavioral", target_role_or_subject=objective, job_description=description),
+        second_question, latest_user_answer, [first_question, second_question], [earlier_user_answer],
+    )
+
+    assert objective in prompt and description in prompt
+    assert latest_user_answer in prompt
+    assert "The counter has stains and dishes are left in the sink." in prompt
+    assert '"AI character (simulator) said": "I did leave dishes in the sink yesterday. What would help?"' in prompt
+    assert "Score only the latest User response above" in prompt
+    assert "not an overall session score" in prompt
+    assert "Do not invent events" in prompt
+    assert "advances the stated communication goal" in prompt
+    assert "personal attack or escalation may undermine" in prompt
+    assert "Ground strengths and improvements in specific evidence" in prompt
+    assert "Do not infer confidence or emotional states" in prompt

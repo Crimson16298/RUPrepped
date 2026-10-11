@@ -305,6 +305,12 @@ response schema. The rubric scores relevance, completeness, clarity, reasoning,
 concrete supporting details, and technical correctness only when applicable;
 it never scores delivery, vocal confidence, pace, or physiology.
 
+Each answer response's `evaluation` and `score` apply to that submitted answer
+only. Prior turns may be included as context for interpreting the answer and
+giving feedback, but the API does not currently calculate or return an overall
+conversation score. The `difficulty_adjustment` is based on that answer's
+evaluation.
+
 The backend applies a bounded policy: score `>=80` increases the next question
 one level unless at level 5; score `<=49` decreases one level unless at level
 1; other scores maintain difficulty. The response includes the decision and

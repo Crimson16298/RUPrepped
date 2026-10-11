@@ -131,6 +131,75 @@ smallest viable live host remains the existing local Node POC/companion. Person
 4 must provide explicit consent/status controls, and Person 1 must approve a
 summary-only process boundary associated with the active `session_id`.
 
+### Person 4 transport handoff
+
+Use Chrome plus the local Node companion for the demo. The installed Presage
+Node SDK captures from the camera in its own process; React receives only
+loopback JSON/SSE summaries. Electron is the fallback after its owner adds the
+documented renderer-media-stream and preload IPC bridge.
+
+Start the companion from `experiments/presage-poc` with a local,
+non-committed `PRESAGE_COMPANION_TOKEN` (32+ characters), then configure the
+same local capability value for the React development client. The companion is
+bound solely to `127.0.0.1:8765`, restricts origins to the configured Vite
+origins, and requires `X-Presage-Capability` on every request. Native
+`EventSource` cannot carry this header, so subscribe with `fetch()` and parse
+the SSE frames.
+
+`experiments/presage-poc/src/companion-client.mjs` is the reference browser
+compatibility re-export. The canonical browser package is
+`@ruprepped/presage-companion-client` at
+`packages/presage-companion-client/`; it accepts the configured loopback URL
+and capability token, refuses non-loopback URLs, and exposes `status()`,
+`start(sessionId)`, `subscribe(sessionId, { onEvent, signal })`, and
+`stop(sessionId)`. It has no Node-only imports and includes a TypeScript
+declaration, so Person 4 should add it as a local frontend dependency instead
+of importing from `experiments/` across Vite's filesystem boundary:
+
+```powershell
+cd C:\Users\zach0\RUPrepped\frontend
+npm.cmd install --save file:../packages/presage-companion-client
+```
+
+```ts
+import { createPresageCompanionClient } from "@ruprepped/presage-companion-client";
+```
+
+For a local demo, generate one fresh capability token per run and write it to
+the ignored `frontend/.env.local` as `VITE_PRESAGE_COMPANION_TOKEN`; set the
+same value as `PRESAGE_COMPANION_TOKEN` in the PowerShell process that starts
+the companion. `VITE_*` values are visible to JavaScript executing in that
+browser origin, so this is a browser-visible, limited local-development
+credential—not secret storage and never the Presage API key. Do not put the
+token in URLs, logs, or committed files. The loopback binding, origin
+allowlist, and header check remain necessary additional controls.
+
+1. On explicit camera opt-in and once `session.id` exists, `POST
+   /v1/presage/start` with `{ "sessionId": session.id, "consent": true }`.
+2. Read `GET /v1/presage/status`, then fetch-stream `GET
+   /v1/presage/events?sessionId=<encoded session.id>`.
+3. For `type: "measurement"`, pass `metrics` directly to
+   `PresageMeasurements` as `measurements`, set
+   `availability="available"`, and set `source="presage-smartspectra"`.
+   Each metric already has `metric`, `value`, ISO `measuredAt`, confidence,
+   and stable fields. Pulse unit is `bpm`; breathing is `breaths/min`; HRV
+   RMSSD has no unit because the SDK declaration provides none.
+4. Map `awaiting_consent` to `not-requested`; `starting`/`warming_up` to
+   `warming-up`; `quality_insufficient`, `unavailable`, `stopped`, and `error`
+   to `unavailable`. The current Node SDK cannot distinguish OS permission
+   denial from its generic input-unavailable signal, so the current integration
+   must render that state as `unavailable` unless a separately verified
+   platform-permission signal is available.
+5. On consent revocation, interview completion, session replacement, component
+   unmount, tab close, or stream failure: close the fetch reader, clear local
+   readings, and `POST /v1/presage/stop` with the same session ID. Cross-session
+   calls are rejected; never reuse a previous session's readings.
+
+This transport never sends video, hints, raw frames, API keys, or transcripts.
+It does not persist readings and does not affect Gemini feedback, shadow
+comparison, or actual difficulty. Real camera verification remains blocked
+until the owner confirms credential rotation.
+
 ## Manual demo order
 
 1. Run `npm.cmd run diagnose` in the Presage POC with `SMARTSPECTRA_DIAGNOSTIC_CONSENT=yes`.
@@ -149,4 +218,169 @@ Backend/API field names, consent wording, retention, and the Node-to-FastAPI tra
 
 Offline verification currently covers Presage normalization/consent/error behavior, deterministic calibration/cooldown/physiology guards, and telemetry parameterization/idempotency/TLS configuration. Local PostgreSQL migration and smoke verification were confirmed from regular Windows PowerShell; TimescaleDB is optional and absent.
 
-Current offline verification: Presage `check` plus 19 tests; adaptive calibration typecheck plus 22 tests; telemetry typecheck plus 14 tests; `git diff --check` passes. Live camera capture was previously verified separately and is not part of the offline suite. Credential rotation remains awaiting owner confirmation; do not run a live session until the old key is revoked and a replacement is installed locally.
+Current offline verification: Presage `check` plus 27 tests; adaptive calibration typecheck plus 22 tests; telemetry typecheck plus 14 tests; `git diff --check` passes. Live camera capture was previously verified separately and is not part of the offline suite. Credential rotation remains awaiting owner confirmation; do not run a live session until the old key is revoked and a replacement is installed locally.
+
+## Verified Presage companion transport contract (v1.0.0)
+
+This section is the implementation contract for Person 4. It is derived from
+`companion-core.mjs`, `companion-server-core.mjs`, the browser client, and
+their offline tests. The current demo choice is **Chrome plus the local Node
+companion**. Electron remains a future alternative once its main/preload/
+renderer bridge is implemented; it is not needed for this transport.
+
+The service binds only to `http://127.0.0.1:8765`. Every route requires both
+an allowed `Origin` and an exact `X-Presage-Capability` value. The browser
+client accepts only `http://127.0.0.1` or `http://localhost` base URLs.
+
+### Requests and responses
+
+`POST /v1/presage/start` body (both fields required):
+
+```json
+{"sessionId":"ses_example","consent":true}
+```
+
+An accepted start returns HTTP 200. It returns the current local companion
+status, which can be `starting` or `warming_up` depending on synchronous SDK
+events. A repeated start for the same active session additionally has
+`"duplicate":true`. A different active session, unavailable camera, or SDK
+startup failure returns HTTP 409 with `accepted:false` and a status; this does
+not mean a measurement exists.
+
+```json
+{"accepted":true,"status":"warming_up"}
+```
+
+`GET /v1/presage/status` returns the current snapshot. `sessionId` is present
+only while a session is active (JavaScript omits an `undefined` field in JSON).
+This endpoint deliberately has no `emittedAt` timestamp.
+
+```json
+{"schemaVersion":"1.0.0","type":"status","sessionId":"ses_example","status":"warming_up"}
+```
+
+`POST /v1/presage/stop` body:
+
+```json
+{"sessionId":"ses_example"}
+```
+
+It accepts only the currently active session, revokes local consent, calls the
+SDK's `stopAsync()` and `destroy()` best-effort, clears the association, and
+returns HTTP 200. Because the session has been cleared, the successful JSON
+response contains no `sessionId` field:
+
+```json
+{"schemaVersion":"1.0.0","type":"status","status":"stopped"}
+```
+
+The corresponding SSE status event retains `sessionId` and has a `reason`, so
+the UI should wait for that event when it needs to associate a stop with its
+session.
+
+All JSON error bodies contain exactly an `error` string. Implemented examples
+are `{"error":"unauthorized"}` (HTTP 403 for a bad origin or token),
+`{"error":"invalid_start_request"}` (HTTP 400),
+`{"error":"session_not_active"}` (HTTP 403), `{"error":"not_found"}`
+(HTTP 404), and `{"error":"invalid_request"}` (HTTP 400 malformed JSON).
+Errors intentionally contain no SDK message, credentials, or camera data.
+
+### SSE event schemas
+
+Subscribe with authenticated `fetch`, not `EventSource`:
+`GET /v1/presage/events?sessionId=ses_example`. It sends one initial status
+snapshot and then `event: status` or `event: measurement` frames. All emitted
+events have `schemaVersion: "1.0.0"` and `emittedAt`, an ISO-8601 UTC string
+from JavaScript `Date#toISOString()`.
+
+A status event has required `schemaVersion`, `emittedAt`, `type: "status"`,
+and `status`; `sessionId` is present while an event relates to an active or
+just-stopped session. It may additionally carry `reason`, `validationCode`,
+or the SDK error fields `code`, `classification`, and `retryable`:
+
+```json
+{"schemaVersion":"1.0.0","emittedAt":"2026-10-11T03:00:00.100Z","type":"status","sessionId":"ses_example","status":"quality_insufficient","validationCode":7}
+```
+
+The supported status values are `awaiting_consent`, `starting`, `warming_up`,
+`measuring`, `quality_insufficient`, `unavailable`, `stopped`, and `error`.
+`permission_denied` is **not** an emitted Node-companion status: SDK input
+unavailability is conservatively represented as `unavailable`.
+
+A measurement event is sent only after consent, SDK validation code `0`, and
+at least one sample with numeric confidence at least 70 and `stable: true`.
+The following is the exact shape when the SDK has supplied all three supported
+metrics; individual metrics are omitted when the SDK did not supply them.
+`observedAt` and each `measuredAt` are ISO-8601 UTC receipt timestamps
+generated when the SDK metrics callback reaches the POC; the transport
+separately sets `emittedAt` when it serializes the SSE event. The raw SDK
+microsecond callback timestamp is intentionally not sent through this
+companion contract. The numeric values below are contract-valid sample values,
+not a claim of a live measurement.
+
+```json
+{
+  "schemaVersion":"1.0.0",
+  "emittedAt":"2026-10-11T03:00:00.101Z",
+  "type":"measurement",
+  "sessionId":"ses_example",
+  "observedAt":"2026-10-11T03:00:00.100Z",
+  "metrics":[
+    {"metric":"pulseRate","value":72,"unit":"bpm","confidence":90,"stable":true,"measuredAt":"2026-10-11T03:00:00.100Z"},
+    {"metric":"breathingRate","value":14.2,"unit":"breaths/min","confidence":90,"stable":true,"measuredAt":"2026-10-11T03:00:00.100Z"},
+    {"metric":"hrvRmssd","value":31.5,"confidence":90,"stable":true,"measuredAt":"2026-10-11T03:00:00.100Z"}
+  ],
+  "quality":{"validationCode":0,"confidence":90,"stable":true}
+}
+```
+
+`metrics` contains one or more supported samples. `metric`, `value`,
+`confidence`, `stable`, and `measuredAt` are required on each emitted sample.
+`unit` is required for `pulseRate` (`bpm`) and `breathingRate`
+(`breaths/min`), but is deliberately omitted for optional `hrvRmssd`: SDK
+v3.4.0 does not define an RMSSD unit. The aggregate quality confidence is the
+minimum confidence across the emitted samples; `stable` is always `true` for
+an accepted event. No raw frame, video, camera hint, API key, or transcript is
+ever present.
+
+### Person 4 client usage
+
+After a reviewed frontend copy/import of `createPresageCompanionClient`, the
+component boundary is direct. `PresageMeasurements.tsx` expects the same
+metric names and uses its own documented display units, so discard only the
+transport-only `quality` field for presentation:
+
+```ts
+const client = createPresageCompanionClient({
+  baseUrl: "http://127.0.0.1:8765",
+  capabilityToken: localCapabilityToken,
+});
+const controller = new AbortController();
+await client.start(session.id); // only after the explicit camera opt-in
+void client.subscribe(session.id, {
+  signal: controller.signal,
+  onEvent(event) {
+    if (event.type === "measurement") {
+      setAvailability("available");
+      setMeasurements(event.metrics);
+    } else if (event.type === "status") {
+      setAvailability(event.status === "starting" || event.status === "warming_up"
+        ? "warming-up"
+        : event.status === "awaiting_consent" ? "not-requested"
+        : event.status === "measuring" ? "available"
+        : "unavailable");
+    }
+  },
+});
+// On consent withdrawal, interview end, replacement, unmount, or stream error:
+controller.abort();
+setMeasurements([]);
+await client.stop(session.id);
+```
+
+Do not render `permission-denied` from this Node transport unless a separate,
+verified browser/platform permission signal exists. A failure to start, a
+camera removed during use, invalid/low-quality measurements, or an SDK error
+must leave the text interview running and show an unavailable/non-diagnostic
+state. The frontend should discard any event whose `sessionId` does not equal
+the current `session.id`, even though the transport also enforces it.

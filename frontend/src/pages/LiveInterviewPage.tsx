@@ -2,7 +2,6 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
-  Coffee,
   FastForward,
   Mic,
   MicOff,
@@ -16,6 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell, Stepper } from "../components/AppShell";
+import { PresageMeasurements, type PresageMeasurementSnapshot } from "../components/PresageMeasurements";
 import { Badge, Button, Card } from "../components/ui";
 import { useSession } from "../context/SessionContext";
 import { useAudioPlayback } from "../hooks/useAudioPlayback";
@@ -62,6 +62,11 @@ export function LiveInterviewPage() {
   const done = !current;
   const isBackend = session?.mode === "backend";
   const latestCalibration = session?.calibration.at(-1);
+  // An approved renderer/Electron transport can replace this snapshot with
+  // consented summary-only measurements. Do not request camera access here.
+  const presageSnapshot: PresageMeasurementSnapshot = session?.setup.cameraEnabled
+    ? { availability: "unavailable" }
+    : { availability: "not-requested" };
   const displayedDifficulty = isBackend ? current?.difficulty ?? session?.setup.difficulty : latestCalibration?.nextLevel ?? session?.setup.difficulty;
   const progress = session ? Math.round((index / session.questionCount) * 100) : 0;
   const providerLabel = !session
@@ -262,7 +267,8 @@ export function LiveInterviewPage() {
             {(error || voiceError || playbackError || recorderError) && <div className="request-notice" role="alert"><strong>Something needs your attention</strong><p>{error ?? voiceError ?? playbackError ?? recorderError}</p>{!busy && text.trim() && <small>Your answer is still here—correct the issue and retry.</small>}</div>}
           </section>
           <aside className="interview-side">
-            <Card className="calibration-card"><div className="side-title"><div><small>CHALLENGE CALIBRATION</small><h2>Level {displayedDifficulty}<span> / 5</span></h2></div><Sparkles size={20} /></div><div className="level-bars">{[1, 2, 3, 4, 5].map((bar) => <i className={bar <= (displayedDifficulty ?? 0) ? "active" : ""} key={bar} />)}</div><p aria-live="polite"><strong>{isBackend && latestCalibration ? adjustmentTitle : isBackend ? current?.difficulty ? "Starting backend question level" : "Difficulty level unavailable" : latestCalibration ? adjustmentTitle : "Starting point set"}</strong>{isBackend ? latestCalibration?.rationale ?? (current?.difficulty ? "This value came from the current backend question. An adjustment rationale will appear after an evaluated answer." : "The backend did not provide difficulty for this question, so no calibration event is inferred.") : latestCalibration?.rationale ?? "This level came from the session setting you selected."}</p><div className="signal-status"><Coffee size={16} /><span><strong>Camera signal unavailable</strong>The current backend does not provide camera or physiological input.</span></div></Card>
+            <Card className="calibration-card"><div className="side-title"><div><small>CHALLENGE CALIBRATION</small><h2>Level {displayedDifficulty}<span> / 5</span></h2></div><Sparkles size={20} /></div><div className="level-bars">{[1, 2, 3, 4, 5].map((bar) => <i className={bar <= (displayedDifficulty ?? 0) ? "active" : ""} key={bar} />)}</div><p aria-live="polite"><strong>{isBackend && latestCalibration ? adjustmentTitle : isBackend ? current?.difficulty ? "Starting backend question level" : "Difficulty level unavailable" : latestCalibration ? adjustmentTitle : "Starting point set"}</strong>{isBackend ? latestCalibration?.rationale ?? (current?.difficulty ? "This value came from the current backend question. An adjustment rationale will appear after an evaluated answer." : "The backend did not provide difficulty for this question, so no calibration event is inferred.") : latestCalibration?.rationale ?? "This level came from the session setting you selected."}</p></Card>
+            <PresageMeasurements {...presageSnapshot} />
             <Card className="transcript-card"><div className="side-title"><div><small>SESSION TRANSCRIPT</small><h2>Practice history</h2></div><span className="transcript-count">{session.transcript.length}</span></div><div className="transcript-list">{session.transcript.map((event) => <article className={event.speaker} key={event.id}><small>{event.speaker === "interviewer" ? "INTERVIEWER" : "YOU"}</small><p>{event.text}</p></article>)}</div></Card>
             {session.answers.at(-1)?.evaluation && <Card className="transcript-card"><div className="side-title"><div><small>LATEST {session.answers.at(-1)?.evaluation?.evaluationSource.toUpperCase()} EVALUATION</small><h2>{session.answers.at(-1)?.evaluation?.score}/100</h2></div><Badge tone="muted">{session.answers.at(-1)?.evaluation?.evaluationSource}</Badge></div><p className="evaluation-copy">{session.answers.at(-1)?.evaluation?.feedback}</p></Card>}
           </aside>

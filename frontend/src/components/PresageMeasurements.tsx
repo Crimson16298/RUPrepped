@@ -24,10 +24,17 @@ export interface PresageMeasurement {
   stable?: boolean;
 }
 
-export interface PresageMeasurementsProps {
+/**
+ * Normalized, summary-only input for a future approved Presage transport.
+ * The transport must never contain camera frames or change interview scoring.
+ */
+export interface PresageMeasurementSnapshot {
   availability: PresageMeasurementAvailability;
   measurements?: readonly PresageMeasurement[];
   source?: PresageMeasurementSource;
+}
+
+export interface PresageMeasurementsProps extends PresageMeasurementSnapshot {
   /** Values older than this are withheld instead of displayed as current. */
   staleAfterMs?: number;
   className?: string;

@@ -57,7 +57,7 @@ export function SessionSetupPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>(3);
   const [lengthMinutes, setLength] = useState(10);
-  const [cameraEnabled, setCamera] = useState(false);
+  const [cameraConsent, setCameraConsent] = useState(false);
   const [resumeName, setResumeName] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -67,7 +67,7 @@ export function SessionSetupPage() {
       jobDescription,
       difficulty,
       lengthMinutes,
-      cameraEnabled,
+      cameraEnabled: cameraConsent,
     });
     if (started) navigate("/interview");
   }
@@ -183,26 +183,25 @@ export function SessionSetupPage() {
                 <Camera size={20} />
                 <div>
                   <strong>
-                    Camera context <span>optional</span>
+                    Optional camera measurement context <span>optional</span>
                   </strong>
                   <p>
-                    Future sessions may offer an optional camera signal. It is
-                    unavailable in the current integration and never claims to measure
-                    emotions or medical data.
+                    Camera measurements are not required for your interview. If an
+                    approved integration becomes available, it may provide measurement
+                    summaries only—it does not assess emotions, stress, or medical data.
                   </p>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={cameraEnabled}
-                    className={`switch ${cameraEnabled ? "checked" : ""}`}
-                    onClick={() => setCamera(!cameraEnabled)}
-                  >
-                    <i />
-                  </button>
+                  <label className="camera-consent-choice">
+                    <input
+                      type="checkbox"
+                      checked={cameraConsent}
+                      onChange={(event) => setCameraConsent(event.target.checked)}
+                    />
+                    <span>I opt in to optional camera-derived measurement summaries for this session.</span>
+                  </label>
                   <small>
-                    {cameraEnabled
-                      ? "Preference saved — unavailable in demo."
-                      : "Continue without camera access."}
+                    {cameraConsent
+                      ? "Consent is saved for this session. No camera permission is requested until an approved integration is connected."
+                      : "Continue without camera access or measurement collection."}
                   </small>
                 </div>
               </div>

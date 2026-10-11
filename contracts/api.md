@@ -151,7 +151,9 @@ message and leave the user able to choose a different file.
 that exact string as optional `resume_text` in `POST /api/sessions`; (5) the
 session starts normally; (6) Gemini uses only stated resume skills, projects,
 tools, and work experience to personalize questions. Resume and job-description
-content is treated as untrusted reference data, not executable instructions.
+content is treated as untrusted reference data, not executable instructions. In
+Gemini mode, `resume_text` is included in the prompt sent to Google's Gemini
+service; the uploaded file is processed in memory and is not permanently stored.
 
 ### `GET /api/health`
 

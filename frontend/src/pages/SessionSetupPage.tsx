@@ -187,9 +187,7 @@ export function SessionSetupPage() {
                 />
               </label>
               <p className="field-note">
-                {resumeUploadStatus === "success"
-                  ? "Resume extracted and ready to personalize this session."
-                  : "Optional · resume text is sent only to the local interview backend for this session."}
+                Your resume is optional. Its text is sent to the interview backend and, in Gemini mode, to Google's Gemini service to personalize questions. The uploaded file is not permanently stored.
               </p>
               {resumeError && <p className="error-message resume-error">{resumeError}</p>}
             </Card>
